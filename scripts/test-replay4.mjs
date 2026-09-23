@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import worker,{replayGeneration4} from '../worker/index.js';
+const launch={kind:'launch',at:0,mint:'m1',name:'Launch',symbol:'L',marketCapSol:27};
+const tick=(at,priceSol,side='buy',solAmount=.01)=>({kind:'trade',at,mint:'m1',priceSol,side,solAmount,marketCapSol:27});
+const policy='c30-d1000-p50|t2000';
+const expand=events=>Array.from({length:24},(_,i)=>events.map(x=>({...x,mint:'m'+i,at:x.at+i*100000,name:x.kind==='launch'?'Launch'+i:x.name}))).flat();
+const row=events=>replayGeneration4(expand(events)).top.find(x=>x.id===policy);
+const events=[launch,tick(500,1),tick(1100,100),tick(1350,2),tick(3350,100),tick(3700,3)];
+const filled=row(events);
+assert.equal(filled.attempts,24);assert.equal(filled.closed,24);
+assert.ok(Math.abs(filled.net5-24*(.002*(3*.95/(2*1.05)-1)-.00002))<1e-12);
+// A trade at the signal time cannot become our fill; neither can a tiny print.
+assert.equal(row([launch,tick(500,1),tick(1100,100),tick(1350,2,'buy',.001),tick(3700,3)]),undefined);
+const missing=row([launch,tick(500,1),tick(1350,2)]);
+assert.equal(missing,undefined);
+const missingResult=replayGeneration4(expand([launch,tick(500,1),tick(1350,2)]));
+assert.equal(missingResult.sampledFormulas,0);assert.equal(missingResult.robustCount,0);
+assert.equal(missingResult.mostObserved.unresolved,24);
+assert.ok(Math.abs(missingResult.mostObserved.net5+24*.00202)<1e-12);
+const api=await (await worker.fetch(new Request('https://test/api/generation-4'),{})).json();
+assert.equal(api.formulas,108);assert.equal(api.capitalUnlocked,false);
+console.log('PASS: delayed entry and exit, minimum liquidity print, loss on missing exit, capital lock');

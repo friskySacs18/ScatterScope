@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import worker,{replayCalloutSignals} from '../worker/index.js';
+const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz',callouts=[],trades=[];
+for(let i=0;i<24;i++){const mint='11111111111111111111111111111111'+alphabet[i],at=i*100000;callouts.push({id:'call-'+i,caller:'caller',mint,publishedAt:at,detectedAt:at+500});trades.push({mint,at:at+700,side:'buy',priceSol:1,solAmount:.02},{mint,at:at+900,side:'buy',priceSol:2,solAmount:.02});if(i!==23)trades.push({mint,at:at+3300,side:'buy',priceSol:3,solAmount:.02})}
+const result=replayCalloutSignals(callouts,trades),row=result.rows.find(x=>x.stakeSol===.002&&x.holdMs===2000);
+assert.equal(result.callouts,24);assert.equal(row.attempts,24);assert.equal(row.closed,23);assert.equal(row.missingExit,1);
+assert.equal(row.meanPublicationToEntryMs,900);
+const fee=.0175,net=.002*(1.5*.95/1.05*(1-fee)/(1+fee)-1)-.00002;
+assert.ok(Math.abs(row.net5-(23*net-.00202))<1e-12);
+assert.equal(result.capitalUnlocked,false);assert.equal(result.sourceStatus,'UNVERIFIED_SUBMITTED_CALLOUTS');
+const invalid=replayCalloutSignals([{...callouts[0],detectedAt:-1},callouts[0],callouts[0]],trades);
+assert.equal(invalid.callouts,1);
+const limited=replayCalloutSignals(callouts,trades,{maxEntryPriceSol:1.5});
+const limitedRow=limited.rows.find(x=>x.stakeSol===.002&&x.holdMs===2000);
+assert.equal(limitedRow.attempts,0);assert.equal(limitedRow.limitRejected,24);
+assert.equal(limitedRow.net5,0);
+const budget=replayCalloutSignals(Array.from({length:260},(_,i)=>({...callouts[0],id:'budget-'+i,mint:callouts[0].mint,detectedAt:i*100000,publishedAt:i*100000-500})),Array.from({length:260},(_,i)=>({mint:callouts[0].mint,at:i*100000+700,side:'buy',priceSol:1,solAmount:.02})));
+const budgetRow=budget.rows.find(x=>x.stakeSol===.002&&x.holdMs===2000);
+assert.equal(budgetRow.attempts,250);assert.equal(budgetRow.budgetRejected,10);
+const api=await worker.fetch(new Request('https://test/api/callouts/replay',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({callouts,trades})}),{});
+assert.equal(api.status,200);assert.equal((await api.json()).rows.length,12);
+assert.equal((await worker.fetch(new Request('https://test/api/callouts/replay',{method:'POST',headers:{Origin:'https://other','content-type':'application/json'},body:'{}'}),{})).status,403);
+assert.equal((await worker.fetch(new Request('https://test/api/execution/canary',{method:'POST'}),{})).status,423);
+const access=await (await worker.fetch(new Request('https://test/api/callouts/access'),{})).json();
+assert.equal(access.paperSetupOpen,true);assert.equal(access.tokenRequired,false);
+const larger=replayCalloutSignals(callouts,trades,{stakeSol:1,sessionBudgetSol:30});
+assert.equal(larger.rows.length,4);assert.equal(larger.sessionBudgetSol,30);
+const previousFetch=globalThis.fetch;globalThis.fetch=async()=>new Response(JSON.stringify({address:'8y83ZUQH8gsbYa9qEyYF6Wdqw3so7L9ThsWREuCVXWTr',username:'huxmotion'}),{headers:{'content-type':'application/json'}});
+for(const q of ['@huxmotion','https://pump.fun/join/huxmotion','https://pump.fun/profile/huxmotion']){const resolved=await worker.fetch(new Request('https://test/api/callouts/resolve?q='+encodeURIComponent(q)),{});assert.equal(resolved.status,200);assert.equal((await resolved.json()).username,'huxmotion')}
+globalThis.fetch=previousFetch;
+assert.equal(access.entitlementEnforced,false);assert.equal(access.liveCopyTrading,false);
+assert.equal((await worker.fetch(new Request('https://test/launch-research'),{})).status,200);
+console.log('PASS: callout detection latency, no signal lookahead, missing exits, fee stress and live capital lock');

@@ -4,6 +4,8 @@ Scope's main page lets visitors choose public Pump caller profiles for research.
 
 `/portfolio` connects a Phantom wallet to read its SOL and SPL token balances through Solana RPC. The receive panel displays that wallet's own address; it is not a deposit into Scope custody. Users can save a device-local draft for spend per call, maximum entry price and stop-loss percentage. Those rules do not create orders. A Jupiter link opens an external venue for manual trades; Scope does not send signed transactions. The public RPC may rate-limit requests; a dedicated `SOLANA_RPC_URL` runtime setting can supply a private provider. Never put an RPC API token or signing key in source control.
 
+The setup offers two future funding modes: direct Phantom with per-trade approval, and a separate Scope trading account intended for deposits and unattended execution. The latter is a preference only until per-user identity, key custody, on-chain deposit reconciliation, withdrawal authorization, and loss controls are implemented and verified. Do not publish a shared deposit address or ask users to transfer funds before that system exists.
+
 The original project and repository name is ScatterScope. The product name is Scope.
 
 ## Current evidence

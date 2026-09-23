@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import worker,{replaySizeSweep} from '../worker/index.js';
+const events=[];
+for(let i=0;i<24;i++){const at=i*100000,mint='mint'+i;events.push({kind:'launch',at,mint,name:'Name'+i,symbol:'S'+i,marketCapSol:27});for(const [offset,priceSol,solAmount] of [[500,1,.03],[1350,2,.03],[3700,3,.012]])events.push({kind:'trade',at:at+offset,mint,side:'buy',priceSol,solAmount,marketCapSol:27})}
+const result=replaySizeSweep(events),row=(size,hold)=>result.bySize.find(x=>x.stakeSol===size).rows.find(x=>x.policy==='early'&&x.holdMs===hold);
+assert.deepEqual(result.sizesSol,[.002,.005,.01,.02]);
+assert.equal(row(.01,2000).attempts,24);
+assert.equal(row(.01,2000).closed,24);
+const expected=.01*(1.5*.95/1.05*.995/1.005-1)-.00002;
+assert.ok(Math.abs(row(.01,2000).net5-24*expected)<1e-12);
+assert.ok(Math.abs(row(.01,2000).net0-24*(.01*(1.5*.995/1.005-1)-.00002))<1e-12);
+assert.equal(row(.02,2000).attempts,24);
+assert.equal(row(.02,2000).closed,0);
+assert.equal(row(.02,2000).unresolved,24);
+assert.ok(Math.abs(row(.02,2000).net5+24*.02002)<1e-12);
+assert.equal(row(.02,5000).closed,0);
+assert.equal(result.capitalUnlocked,false);
+const api=await (await worker.fetch(new Request('https://test/api/size-sweep'),{})).json();
+assert.equal(api.bySize.length,4);
+assert.equal(api.capitalUnlocked,false);
+console.log('PASS: four sizes, fixed entry rules, print-size coverage, venue fees, full missing-exit losses, capital lock');

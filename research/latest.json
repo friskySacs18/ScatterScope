@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-21T22:57:22.347Z",
+  "finishedAt": "2026-09-21T22:58:07.347Z",
+  "reason": "time_limit",
+  "tokenCount": 3,
+  "tradeCount": 0,
+  "events": [
+    {
+      "kind": "launch",
+      "at": 1790031443646,
+      "mint": "23x4w7PQ89EjHfqEtqzbQ2Twq7LnoQ7q7UShQ7Utpump",
+      "name": "Bangladesh",
+      "symbol": "Bangladesh",
+      "marketCapSol": 28.014248387538213
+    },
+    {
+      "kind": "launch",
+      "at": 1790031445821,
+      "mint": "A1oRZY3o8eUwTY9MUxpBSWNNDSSUq16uP1BvpKudpump",
+      "name": "SWAB -COINS",
+      "symbol": "SWABBER",
+      "marketCapSol": 29.834396893409544
+    },
+    {
+      "kind": "launch",
+      "at": 1790031454119,
+      "mint": "3JJM4L3HtjxsUCxDwheHhW6cbBWTRe553VnBcR5LC4ng",
+      "name": "the tapper",
+      "symbol": "tapper",
+      "marketCapSol": 29.853991922957412
+    }
+  ],
+  "messages": [
+    "Upstream reported an error",
+    "Successfully subscribed to token creation events.",
+    "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL.",
+    "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL.",
+    "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL."
+  ],
+  "comparisons": [
+    {
+      "rule": "broad",
+      "delayMs": 500,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "broad",
+      "delayMs": 500,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "broad",
+      "delayMs": 500,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "broad",
+      "delayMs": 2000,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "broad",
+      "delayMs": 2000,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "broad",
+      "delayMs": 2000,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 500,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 500,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 500,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 2000,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 2000,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique",
+      "delayMs": 2000,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 500,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 500,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 500,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 2000,
+      "holdMs": 5000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 2000,
+      "holdMs": 15000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    },
+    {
+      "rule": "unique-cap-30",
+      "delayMs": 2000,
+      "holdMs": 30000,
+      "closed": 0,
+      "unresolved": 0,
+      "noEntry": 3,
+      "wins": 0,
+      "netSol": 0
+    }
+  ],
+  "tradingEnabled": false,
+  "limits": {
+    "durationSeconds": 45,
+    "maxTokens": 8,
+    "maxTradeMessages": 1000
+  },
+  "evidence": "EXPLORATORY_REAL_EVENTS",
+  "limitations": [
+    "Not executable quotes or fills",
+    "No independent holdout",
+    "No global duplicate history",
+    "Unresolved exits excluded from proxy P&L",
+    "No profitability certification",
+    "Shared connection and concurrency lock apply per worker instance"
+  ]
+}
