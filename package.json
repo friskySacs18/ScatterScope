@@ -7,9 +7,16 @@
     "validate": "node scripts/validate-artifact.mjs"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.45.0",
+    "@solana-program/memo": "^0.8.0",
+    "@solana-program/system": "^0.8.1",
+    "@solana-program/token": "^0.6.0",
+    "@solana/kit": "^3.0.3",
     "@solana/web3.js": "^1.99.0",
     "bs58": "^6.0.0",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10",

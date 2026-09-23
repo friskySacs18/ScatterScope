@@ -41,5 +41,13 @@ assert.equal(legacy.status, 200);
 const legacyHtml = await legacy.text();
 assert.ok(legacyHtml.includes('id="chamberCanvas"'), 'Launch research must retain the 3D canvas');
 assert.ok(legacyHtml.includes('precision highp float'), 'Production shader must be embedded');
+const account = await workerModule.default.fetch(new Request('https://artifact.local/account'), {}, {});
+assert.equal(account.status, 200);
+assert.ok((await account.text()).includes('id="accountRoot"'), 'Trading account route must render');
+const accountScript = await workerModule.default.fetch(new Request('https://artifact.local/account.js'), {}, {});
+assert.equal(accountScript.status, 200);
+assert.ok((await accountScript.text()).includes('cmuejmq9g00eg0cla13182nah'), 'Privy app must be configured');
+const missingWallet = await workerModule.default.fetch(new Request('https://artifact.local/api/account/balance'), {}, {});
+assert.equal(missingWallet.status, 400, 'Invalid account balance query must fail closed');
 
 console.log("Artifact is valid ESM and the rendered client script parses");
