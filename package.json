@@ -7,9 +7,12 @@
     "validate": "node scripts/validate-artifact.mjs"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.99.0",
+    "bs58": "^6.0.0",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.25.9"
   }
 }

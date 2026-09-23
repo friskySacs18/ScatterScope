@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const campaignLaunches = sqliteTable("campaign_launches", {
   mint: text("mint").primaryKey(),
@@ -38,3 +38,61 @@ export const campaignRuns = sqliteTable("campaign_runs", {
 }, table => [
   index("idx_campaign_runs_started_at").on(table.startedAt),
 ]);
+
+// Signing keys stay with a custody provider, never in D1.
+export const tradingUsers = sqliteTable("trading_users", {
+  id: text("id").primaryKey(),
+  authSubject: text("auth_subject").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, table => [uniqueIndex("uidx_trading_users_auth_subject").on(table.authSubject)]);
+
+export const tradingAccounts = sqliteTable("trading_accounts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => tradingUsers.id),
+  providerWalletId: text("provider_wallet_id").notNull(),
+  depositAddress: text("deposit_address").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: integer("created_at").notNull(),
+}, table => [
+  uniqueIndex("uidx_trading_accounts_user").on(table.userId),
+  uniqueIndex("uidx_trading_accounts_wallet").on(table.providerWalletId),
+  uniqueIndex("uidx_trading_accounts_address").on(table.depositAddress),
+]);
+
+export const accountDeposits = sqliteTable("account_deposits", {
+  signature: text("signature").primaryKey(),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id),
+  lamports: text("lamports").notNull(),
+  slot: integer("slot").notNull(),
+  state: text("state").notNull(),
+  observedAt: integer("observed_at").notNull(),
+  confirmedAt: integer("confirmed_at"),
+}, table => [index("idx_account_deposits_account").on(table.accountId)]);
+
+export const accountWithdrawals = sqliteTable("account_withdrawals", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id),
+  idempotencyKey: text("idempotency_key").notNull(),
+  destination: text("destination").notNull(),
+  lamports: text("lamports").notNull(),
+  state: text("state").notNull().default("requested"),
+  userApprovalId: text("user_approval_id"),
+  signature: text("signature"),
+  createdAt: integer("created_at").notNull(),
+  completedAt: integer("completed_at"),
+}, table => [
+  uniqueIndex("uidx_account_withdrawals_idempotency").on(table.accountId,table.idempotencyKey),
+  uniqueIndex("uidx_account_withdrawals_signature").on(table.signature),
+]);
+
+export const accountOrders = sqliteTable("account_orders", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id),
+  signalId: text("signal_id").notNull(),
+  mint: text("mint").notNull(),
+  side: text("side").notNull(),
+  maxLamports: text("max_lamports").notNull(),
+  state: text("state").notNull().default("queued"),
+  signature: text("signature"),
+  createdAt: integer("created_at").notNull(),
+}, table => [uniqueIndex("uidx_account_orders_signal").on(table.accountId,table.signalId,table.side)]);

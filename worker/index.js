@@ -521,10 +521,11 @@ body.calling .hero .wrap{animation:hero-call .54s ease-out both}
 </script></body></html>`;
 
 const portfolioPage = "__PORTFOLIO_HTML__";
+const manualTradeScript = "__MANUAL_TRADE_JS__";
 let latestEvidence=null;
 const executionControl=Object.freeze({mode:'shadow',killSwitch:'engaged',liveTrading:false,signerLoaded:false,spendCapSol:0,transactionRoutes:0,walletIsolation:'market-data-only'});
 const calloutAccess=Object.freeze({paperSetupOpen:true,tokenRequired:false,tokenMintConfigured:false,entitlementEnforced:false,liveCopyTrading:false});
-const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
+const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
 const pageHeaders={"content-type":"text/html; charset=utf-8","cache-control":"no-store, no-cache, must-revalidate, max-age=0","cdn-cache-control":"no-store","surrogate-control":"no-store","pragma":"no-cache","expires":"0","clear-site-data":"\"cache\"","x-scatterscope-build":BUILD_ID,...secure};
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...secure}})}
 async function portfolioBalances(request,env){
@@ -566,6 +567,47 @@ async function portfolioBalances(request,env){
     }).sort((a,b)=>a.mint.localeCompare(b.mint));
     return json({wallet,sol:lamports/1e9,tokens:tokens.slice(0,200),updatedAt:new Date().toISOString()});
   }catch{return json({error:"Solana balance service is unavailable. Try refreshing shortly."},502)}
+}
+async function buildManualTrade(request,env){
+  if(request.method!=="POST")return json({error:"POST required"},405);
+  const origin=request.headers.get("origin");
+  if(origin&&origin!==new URL(request.url).origin)return json({error:"Cross-origin requests are unavailable."},403);
+  if(!request.headers.get("content-type")?.startsWith("application/json"))return json({error:"JSON required"},415);
+  if(Number(request.headers.get("content-length")||0)>2048)return json({error:"Request too large"},413);
+  let body;try{body=await request.json()}catch{return json({error:"Invalid request"},400)}
+  const wallet=body?.wallet,mint=body?.mint,action=body?.action,amount=Number(body?.amount),slippage=Number(body?.slippage);
+  if(typeof wallet!=="string"||!mintPattern.test(wallet)||typeof mint!=="string"||!mintPattern.test(mint)||mint===wallet)return json({error:"Check the wallet and token mint addresses."},400);
+  if(action!=="buy"&&action!=="sell")return json({error:"Choose buy or sell."},400);
+  if(action==="buy"&&(!Number.isFinite(amount)||amount<.001||amount>5||Math.round(amount*1e9)!==amount*1e9))return json({error:"Buy amount must be 0.001–5 SOL, with at most nine decimals."},400);
+  if(action==="sell"&&(!Number.isInteger(amount)||amount<1||amount>100))return json({error:"Sell 1–100% of this token."},400);
+  if(!Number.isFinite(slippage)||slippage<.5||slippage>10)return json({error:"Slippage must be 0.5–10%."},400);
+  const trade={publicKey:wallet,action,mint,amount:action==="buy"?amount:`${amount}%`,denominatedInSol:action==="buy"?"true":"false",slippage,priorityFee:.00005,pool:"pump"};
+  try{
+    const response=await fetch("https://pumpportal.fun/api/trade-local",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(trade),signal:AbortSignal.timeout(12000)});
+    if(!response.ok)return json({error:"Could not build this trade. Check the token and try again."},502);
+    const bytes=new Uint8Array(await response.arrayBuffer());
+    if(bytes.length<100||bytes.length>1232)return json({error:"Trade builder returned an invalid transaction."},502);
+    const transaction=btoa(String.fromCharCode(...bytes));
+    const simulation=await fetch(env?.SOLANA_RPC_URL||"https://api.mainnet-beta.solana.com",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"simulateTransaction",params:[transaction,{encoding:"base64",sigVerify:false,replaceRecentBlockhash:true,commitment:"confirmed"}]}),signal:AbortSignal.timeout(9000)});
+    if(!simulation.ok)throw Error("RPC unavailable");
+    const result=await simulation.json();
+    if(result.error)throw Error("RPC unavailable");
+    if(result.result?.value?.err)return json({error:"Trade preflight failed. Check the token pool, wallet balance and slippage. No transaction was sent."},422);
+    if(!result.result?.value)return json({error:"Trade preflight was incomplete. No transaction was sent."},502);
+    return json({transaction,wallet,mint,action,amount,slippage,priorityFee:trade.priorityFee,pool:"pump",preflight:true});
+  }catch{return json({error:"Trade builder is unavailable. No transaction was sent."},502)}
+}
+async function manualTradeStatus(request,env){
+  if(request.method!=="GET")return json({error:"GET required"},405);
+  const signature=new URL(request.url).searchParams.get("signature")||"";
+  if(!/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(signature))return json({error:"Invalid transaction signature."},400);
+  try{
+    const response=await fetch(env?.SOLANA_RPC_URL||"https://api.mainnet-beta.solana.com",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSignatureStatuses",params:[[signature],{searchTransactionHistory:true}]}),signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error("RPC unavailable");
+    const data=await response.json();if(data.error)throw Error("RPC error");
+    const status=data.result?.value?.[0];
+    return json({signature,state:status?.err?"failed":status?.confirmationStatus||"pending",error:status?.err||null});
+  }catch{return json({error:"Confirmation status unavailable. Check the transaction explorer."},502)}
 }
 async function runD1Batch(db,statements){for(let i=0;i<statements.length;i+=50)await db.batch(statements.slice(i,i+50))}
 export async function persistCampaignEvidence(db,evidence){
@@ -898,4 +940,4 @@ async function resolveCaller(request){
   }catch{return json({error:'Pump profile lookup is unavailable. Try again shortly.'},502)}
 }
 
-export default{async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/api/build")return json({buildId:BUILD_ID});if(url.pathname==="/api/portfolio")return portfolioBalances(request,env);if(url.pathname==="/api/callouts/resolve")return resolveCaller(request);if(url.pathname==="/api/callouts/access")return json(calloutAccess);if(url.pathname==="/api/latest-test")return json(latestEvidence||{pending:true});if(url.pathname==="/api/execution-status")return json(executionControl);if(url.pathname==="/api/execution-readiness")return json(await executionReadiness(env.DB));if(url.pathname==="/api/research-snapshot"){const analysis=await analyzeCampaign(env.DB);return json({analysis,readiness:executionReadinessFromAnalysis(analysis)})}if(url.pathname==="/api/generation-2")return json(await analyzeGeneration2(env.DB));if(url.pathname==="/api/generation-3")return json(await analyzeGeneration3(env.DB));if(url.pathname==="/api/generation-4")return json(await analyzeGeneration4(env.DB));if(url.pathname==="/api/size-sweep")return json(await analyzeSizeSweep(env.DB));if(url.pathname==="/api/callouts/replay")return handleCalloutReplay(request);if(url.pathname==="/api/execution/canary"&&request.method==="POST")return json({error:"Live-capital interlock is locked",readiness:await executionReadiness(env.DB)},423);if(url.pathname==="/api/campaign/status")return json(await readCampaignStatus(env.DB));if(url.pathname==="/api/campaign/analysis")return json(await analyzeCampaign(env.DB));if(url.pathname==="/api/campaign/batch")return forwardTest(request,env,{durationMs:90000,intakeMs:30000,maxTokens:20,maxTradeMessages:3000});if(url.pathname==="/api/forward-test")return forwardTest(request,env);if(url.pathname==="/api/status")return json({configured:Boolean(env.PUMPPORTAL_API_KEY),stream:"new-token-and-trades",buildId:BUILD_ID,...executionControl});if(url.pathname==="/api/inspect"&&request.method==="POST")return inspectMetadata(request);if(url.pathname==="/api/stream")return relay(request,env);if(url.pathname==="/portfolio")return new Response(portfolioPage,{headers:pageHeaders});if(url.pathname==="/launch-research")return new Response(page,{headers:pageHeaders});if(url.pathname==="/")return new Response(calloutPage,{headers:pageHeaders});return new Response("Not found",{status:404,headers:secure})}};
+export default{async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/api/build")return json({buildId:BUILD_ID});if(url.pathname==="/manual-trade.js")return new Response(manualTradeScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/api/manual-trade/build")return buildManualTrade(request,env);if(url.pathname==="/api/manual-trade/status")return manualTradeStatus(request,env);if(url.pathname==="/api/portfolio")return portfolioBalances(request,env);if(url.pathname==="/api/callouts/resolve")return resolveCaller(request);if(url.pathname==="/api/callouts/access")return json(calloutAccess);if(url.pathname==="/api/latest-test")return json(latestEvidence||{pending:true});if(url.pathname==="/api/execution-status")return json(executionControl);if(url.pathname==="/api/execution-readiness")return json(await executionReadiness(env.DB));if(url.pathname==="/api/research-snapshot"){const analysis=await analyzeCampaign(env.DB);return json({analysis,readiness:executionReadinessFromAnalysis(analysis)})}if(url.pathname==="/api/generation-2")return json(await analyzeGeneration2(env.DB));if(url.pathname==="/api/generation-3")return json(await analyzeGeneration3(env.DB));if(url.pathname==="/api/generation-4")return json(await analyzeGeneration4(env.DB));if(url.pathname==="/api/size-sweep")return json(await analyzeSizeSweep(env.DB));if(url.pathname==="/api/callouts/replay")return handleCalloutReplay(request);if(url.pathname==="/api/execution/canary"&&request.method==="POST")return json({error:"Live-capital interlock is locked",readiness:await executionReadiness(env.DB)},423);if(url.pathname==="/api/campaign/status")return json(await readCampaignStatus(env.DB));if(url.pathname==="/api/campaign/analysis")return json(await analyzeCampaign(env.DB));if(url.pathname==="/api/campaign/batch")return forwardTest(request,env,{durationMs:90000,intakeMs:30000,maxTokens:20,maxTradeMessages:3000});if(url.pathname==="/api/forward-test")return forwardTest(request,env);if(url.pathname==="/api/status")return json({configured:Boolean(env.PUMPPORTAL_API_KEY),stream:"new-token-and-trades",buildId:BUILD_ID,...executionControl});if(url.pathname==="/api/inspect"&&request.method==="POST")return inspectMetadata(request);if(url.pathname==="/api/stream")return relay(request,env);if(url.pathname==="/portfolio")return new Response(portfolioPage,{headers:pageHeaders});if(url.pathname==="/launch-research")return new Response(page,{headers:pageHeaders});if(url.pathname==="/")return new Response(calloutPage,{headers:pageHeaders});return new Response("Not found",{status:404,headers:secure})}};

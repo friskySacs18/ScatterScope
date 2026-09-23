@@ -1,4 +1,5 @@
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {build} from 'esbuild';
 const root=new URL('../',import.meta.url);
 const source=readFileSync(new URL('worker/index.js',root),'utf8');
 const heroArt=readFileSync(new URL('assets/scope-instrument.webp',root)).toString('base64');
@@ -6,6 +7,8 @@ if(!source.includes('__HERO_ASSET__'))throw Error('Missing hero asset slot');
 let built=source.replaceAll('__HERO_ASSET__','data:image/webp;base64,'+heroArt);
 built=built.replace('const chamberShader = "";','const chamberShader = '+JSON.stringify(readFileSync(new URL('assets/chamber.frag',root),'utf8'))+';');
 built=built.replace('const portfolioPage = "__PORTFOLIO_HTML__";','const portfolioPage = '+JSON.stringify(readFileSync(new URL('assets/portfolio.html',root),'utf8'))+';');
+const tradeBundle=await build({entryPoints:[new URL('assets/manual-trade.js',root).pathname],bundle:true,minify:true,platform:'browser',format:'iife',write:false,define:{'process.env.NODE_ENV':'"production"'}});
+built=built.replace('const manualTradeScript = "__MANUAL_TRADE_JS__";','const manualTradeScript = '+JSON.stringify(tradeBundle.outputFiles[0].text)+';');
 const report=new URL('research/latest.json',root);
 if(existsSync(report))built=built.replace('const latestEvidence=null;','const latestEvidence='+JSON.stringify(JSON.parse(readFileSync(report,'utf8')))+';');
 writeFileSync(new URL('dist/server/index.js',root),built);
