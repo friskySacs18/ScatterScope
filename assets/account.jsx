@@ -13,20 +13,74 @@ function lamportsOf(value){
   const units=BigInt(whole)*1000000000n+BigInt(part.padEnd(9,'0'));
   return units>0n&&units<=BigInt(Number.MAX_SAFE_INTEGER)?units:null;
 }
+function TradePanel({wallet,balance,holdings,onRefresh}){
+  const {signAndSendTransaction}=useSignAndSendTransaction();
+  const [mint,setMint]=useState(''),[side,setSide]=useState('buy'),[amount,setAmount]=useState('0.01'),[percent,setPercent]=useState('100'),[slippage,setSlippage]=useState('2'),[draft,setDraft]=useState(null),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[signature,setSignature]=useState('');
+  const clear=()=>{setDraft(null);setSignature('')};
+  function prepare(event){
+    event.preventDefault();clear();
+    try{
+      const token=new PublicKey(mint.trim()).toBase58();
+      if(token===wallet.address)throw Error('Choose a token mint, not your wallet address.');
+      const slip=Number(slippage);
+      if(!Number.isFinite(slip)||slip<0.5||slip>10)throw Error('Slippage must be 0.5–10%.');
+      const size=side==='buy'?Number(amount):Number(percent);
+      if(side==='buy'){
+        const units=lamportsOf(amount.trim());
+        if(units===null||size<0.001||size>5)throw Error('Buy amount must be 0.001–5 SOL.');
+        if(balance===null||units+100000n>BigInt(balance))throw Error('Refresh your balance and leave SOL for trade fees.');
+      }else if(!Number.isInteger(size)||size<1||size>100||!holdings.some(t=>t.mint===token))throw Error('Choose 1–100% of a token shown in your holdings.');
+      setDraft({wallet:wallet.address,mint:token,action:side,amount:size,slippage:slip});
+      setStatus('Review the full mint, side, amount and maximum slippage. No live quote is shown.');
+    }catch(error){setStatus(error.message||'Could not review this trade.');}
+  }
+  async function submit(){
+    if(!draft||busy||wallet.address!==draft.wallet)return;
+    const selected=draft;setBusy(true);setStatus('Building and simulating the transaction…');let hash='';
+    try{
+      const response=await fetch('/api/manual-trade/build',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(selected),signal:AbortSignal.timeout(18000)});
+      const result=await response.json();
+      if(!response.ok)throw Error(result.error||'Could not build the trade.');
+      if(!result.preflight||result.wallet!==selected.wallet||result.mint!==selected.mint||result.action!==selected.action||result.amount!==selected.amount||result.slippage!==selected.slippage)throw Error('Trade details changed. No transaction sent.');
+      const bytes=Uint8Array.from(atob(result.transaction),c=>c.charCodeAt(0));
+      if(bytes.length>1232)throw Error('Transaction too large.');
+      const tx=VersionedTransaction.deserialize(bytes),keys=tx.message.staticAccountKeys.map(k=>k.toBase58());
+      if(keys[0]!==selected.wallet||tx.message.header.numRequiredSignatures!==1||tx.signatures.length!==1||!keys.includes(selected.mint))throw Error('Transaction did not match your wallet and mint.');
+      setStatus('Check the wallet transaction preview before approving.');
+      const sent=await signAndSendTransaction({transaction:bytes,wallet,chain:'solana:mainnet',options:{uiOptions:{showWalletUIs:true}}});
+      hash=bs58.encode(sent.signature);
+      if(!/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(hash))throw Error('Signature was unavailable; check wallet activity before trying again.');
+      setSignature(hash);setDraft(null);setStatus('Submitted. Waiting for confirmation…');
+      let settled=false;
+      for(let attempt=0;attempt<12;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,2500));
+        try{const check=await fetch('/api/manual-trade/status?signature='+encodeURIComponent(hash),{cache:'no-store'});if(!check.ok)continue;const result=await check.json();
+          if(result.state==='failed'){setStatus('Trade failed on chain. Inspect the transaction before retrying.');settled=true;break;}
+          if(result.state==='confirmed'||result.state==='finalized'){setStatus('Trade confirmed on Solana.');settled=true;break;}}
+        catch{}
+      }
+      if(!settled)setStatus('Confirmation is pending. Check the transaction before another attempt.');
+      await onRefresh();
+    }catch(error){setStatus((error?.message||'Trade not completed.')+(hash?' Inspect the transaction before retrying.':''));}
+    finally{setBusy(false);}
+  }
+  return <section className="panel wide" id="accountTrade"><span className="tag">03 / MANUAL TOKEN TRADE</span><h2>Buy or sell Pump tokens</h2><p>Trades on the Pump bonding curve need your approval in Privy. This form does not place automatic snipes, limit orders or stop losses.</p><form onSubmit={prepare} className="trade-grid"><label className="field full"><span>FULL TOKEN MINT ADDRESS</span><input spellCheck="false" autoComplete="off" value={mint} onChange={e=>{setMint(e.target.value);clear()}} placeholder="Paste a Pump token address" required /></label><label className="field"><span>ACTION</span><select value={side} onChange={e=>{setSide(e.target.value);clear()}}><option value="buy">Buy</option><option value="sell">Sell</option></select></label>{side==='buy'?<label className="field"><span>SPEND / SOL</span><input inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);clear()}} required /></label>:<label className="field"><span>SELL / % OF HOLDINGS</span><input inputMode="numeric" value={percent} onChange={e=>{setPercent(e.target.value);clear()}} required /></label>}<label className="field"><span>MAX SLIPPAGE / %</span><input inputMode="decimal" value={slippage} onChange={e=>{setSlippage(e.target.value);clear()}} required /></label><div className="field trade-submit"><button className="action primary" type="submit" disabled={busy}>REVIEW TRADE</button></div></form>{draft&&<div className="review"><strong>{draft.action==='buy'?'Buy for '+draft.amount+' SOL':'Sell '+draft.amount+'% of holdings'} · up to {draft.slippage}% slippage</strong><p>Token mint:</p><code>{draft.mint}</code><p>Pool: Pump bonding curve. Priority fee: 0.00005 SOL. Pool, API and network fees apply. Preflight checks execution, but no current price quote is displayed.</p><button className="action primary" onClick={submit} disabled={busy}>APPROVE IN PRIVY</button><button className="action" onClick={()=>setDraft(null)} disabled={busy}>CANCEL</button></div>}{signature&&<p>Transaction: <a href={'https://solscan.io/tx/'+signature} target="_blank" rel="noopener noreferrer">View on Solscan ↗</a></p>}<p className="status" role="status">{status}</p><div className="note"><strong>Token holdings</strong>{holdings.length?<div className="holdings-list">{holdings.map(token=><button key={token.mint} className="token-row" type="button" onClick={()=>{setMint(token.mint);setSide('sell');clear()}}><span>{token.mint.slice(0,7)}…{token.mint.slice(-7)}</span><b>{token.uiAmount}</b><small>SELL ↗</small></button>)}</div>:<p>No tokens loaded. Refresh your balance to check holdings.</p>}</div></section>;
+}
+
 function Account(){
   const {ready,authenticated,login,logout}=usePrivy();
   const {wallets,ready:walletsReady}=useWallets();
   const {createWallet}=useCreateWallet();
   const {signAndSendTransaction}=useSignAndSendTransaction();
-  const [balance,setBalance]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[destination,setDestination]=useState(''),[amount,setAmount]=useState(''),[review,setReview]=useState(null),[signature,setSignature]=useState('');
+  const [balance,setBalance]=useState(null),[holdings,setHoldings]=useState([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[destination,setDestination]=useState(''),[amount,setAmount]=useState(''),[review,setReview]=useState(null),[signature,setSignature]=useState('');
   const wallet=authenticated&&walletsReady?wallets.find(w=>w.standardWallet?.name==='Privy'):null;
   const address=wallet?.address||'';
   async function refresh(quiet=false){
     if(!address)return;
-    try{const response=await fetch('/api/account/balance?wallet='+encodeURIComponent(address),{cache:'no-store'});const data=await response.json();if(!response.ok)throw Error(data.error||'Balance unavailable');setBalance(data.lamports);if(!quiet)setMessage('Balance refreshed.');}
+    try{const response=await fetch('/api/account/balance?wallet='+encodeURIComponent(address),{cache:'no-store'});const data=await response.json();if(!response.ok)throw Error(data.error||'Balance unavailable');setBalance(data.lamports);if(!quiet)setMessage('Balance refreshed.');try{const portfolio=await fetch('/api/portfolio?wallet='+encodeURIComponent(address),{cache:'no-store'});if(portfolio.ok){const info=await portfolio.json();setHoldings(info.tokens||[])}}catch{}}
     catch(error){setMessage(error.message||'Balance unavailable');}
   }
-  useEffect(()=>{setBalance(null);setReview(null);setSignature('');if(address)refresh();},[address]);
+  useEffect(()=>{setBalance(null);setHoldings([]);setReview(null);setSignature('');if(address)refresh();},[address]);
   function prepare(event){
     event.preventDefault();setReview(null);setSignature('');
     try{
@@ -69,6 +123,6 @@ function Account(){
   if(!ready||!walletsReady)return <div className="panel">Opening your account…</div>;
   if(!authenticated)return <div className="panel"><h2>Sign in to create an account.</h2><p>Your login controls a separate Privy Solana wallet. Sign in with an option enabled in your Privy app.</p><button className="action primary" onClick={login}>SIGN IN WITH PRIVY</button></div>;
   if(!wallet)return <div className="panel"><h2>Create your Solana wallet.</h2><p>One dedicated address for receiving SOL. Account creation does not delegate trading access to Scope.</p><button className="action primary" disabled={busy} onClick={async()=>{setBusy(true);try{await createWallet();setMessage('Wallet created.');}catch(error){setMessage(error?.message||'Could not create wallet.')}finally{setBusy(false)}}}>CREATE WALLET</button><button className="action" onClick={logout}>SIGN OUT</button><p role="status" className="status">{message}</p></div>;
-  return <div className="grid"><section className="panel"><span className="tag">01 / BALANCE & RECEIVE</span><h2>Your wallet</h2><div className="balance">{balance===null?'—':(Number(balance)/1e9).toLocaleString(undefined,{maximumFractionDigits:9})} <span style={{fontSize:19}}>SOL</span></div><p>Receive SOL at this exact Solana mainnet address. Verify it in the Privy wallet before sending a small test amount.</p><code className="address">{address}</code><button className="action" onClick={async()=>{try{await navigator.clipboard.writeText(address);setMessage('Address copied.')}catch{setMessage('Select and copy the address above.')}}}>COPY ADDRESS</button><button className="action" disabled={busy} onClick={()=>refresh()}>REFRESH BALANCE</button><button className="action" onClick={logout}>SIGN OUT</button></section><section className="panel"><span className="tag">02 / WITHDRAW</span><h2>Send SOL out</h2><p>Review the recipient and amount. Your Privy wallet asks you to approve this transfer.</p><form onSubmit={prepare}><label className="field"><span>DESTINATION / SOLANA ADDRESS</span><input autoComplete="off" spellCheck="false" value={destination} onChange={e=>{setDestination(e.target.value);setReview(null)}} placeholder="Paste recipient address" required /></label><label className="field"><span>AMOUNT / SOL</span><input inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setReview(null)}} placeholder="0.01" required /></label><button className="action primary" disabled={busy} type="submit">REVIEW WITHDRAWAL</button></form>{review&&<div className="review"><strong>Send {review.display} SOL</strong><p>To this full address:</p><code>{review.to}</code><p>Network fees come from this wallet. Transfers cannot be reversed.</p><button className="action primary" disabled={busy} onClick={send}>APPROVE IN PRIVY</button><button className="action" disabled={busy} onClick={()=>setReview(null)}>CANCEL</button></div>}{signature&&<p>Transaction: <a href={'https://solscan.io/tx/'+signature} target="_blank" rel="noopener noreferrer">View on Solscan ↗</a></p>}<p role="status" className="status">{message}</p></section><section className="panel wide"><span className="tag">TRADING STATUS</span><div className="note"><strong>Automatic trading is inactive.</strong><p>This wallet can receive and send SOL with your approval. Scope does not have permission to spend it unattended. Before automatic sniping can run, Scope needs a verified Callout feed, a restricted delegated signer, server authentication, reconciliation, and a funded canary test. Keep deposits small while this private pilot is being checked.</p></div><a className="action" href="/portfolio">USE DIRECT PHANTOM INSTEAD ↗</a></section></div>;
+  return <div className="grid"><section className="panel"><span className="tag">01 / BALANCE & RECEIVE</span><h2>Your wallet</h2><div className="balance">{balance===null?'—':(Number(balance)/1e9).toLocaleString(undefined,{maximumFractionDigits:9})} <span style={{fontSize:19}}>SOL</span></div><p>Receive SOL at this exact Solana mainnet address. Verify it in the Privy wallet before sending a small test amount.</p><code className="address">{address}</code><button className="action" onClick={async()=>{try{await navigator.clipboard.writeText(address);setMessage('Address copied.')}catch{setMessage('Select and copy the address above.')}}}>COPY ADDRESS</button><button className="action" disabled={busy} onClick={()=>refresh()}>REFRESH BALANCE</button><button className="action" onClick={logout}>SIGN OUT</button></section><section className="panel"><span className="tag">02 / WITHDRAW</span><h2>Send SOL out</h2><p>Review the recipient and amount. Your Privy wallet asks you to approve this transfer.</p><form onSubmit={prepare}><label className="field"><span>DESTINATION / SOLANA ADDRESS</span><input autoComplete="off" spellCheck="false" value={destination} onChange={e=>{setDestination(e.target.value);setReview(null)}} placeholder="Paste recipient address" required /></label><label className="field"><span>AMOUNT / SOL</span><input inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setReview(null)}} placeholder="0.01" required /></label><button className="action primary" disabled={busy} type="submit">REVIEW WITHDRAWAL</button></form>{review&&<div className="review"><strong>Send {review.display} SOL</strong><p>To this full address:</p><code>{review.to}</code><p>Network fees come from this wallet. Transfers cannot be reversed.</p><button className="action primary" disabled={busy} onClick={send}>APPROVE IN PRIVY</button><button className="action" disabled={busy} onClick={()=>setReview(null)}>CANCEL</button></div>}{signature&&<p>Transaction: <a href={'https://solscan.io/tx/'+signature} target="_blank" rel="noopener noreferrer">View on Solscan ↗</a></p>}<p role="status" className="status">{message}</p></section><TradePanel wallet={wallet} balance={balance} holdings={holdings} onRefresh={()=>refresh(true)} /><section className="panel wide"><span className="tag">TRADING STATUS</span><div className="note"><strong>Automatic trading is inactive.</strong><p>This wallet can receive and send SOL and make manual Pump trades with your approval. Scope does not have permission to spend it unattended. Before automatic sniping can run, Scope needs a verified Callout feed, a restricted delegated signer, server authentication, reconciliation, and a funded canary test. Keep deposits small while this private pilot is being checked.</p></div><a className="action" href="/portfolio">USE DIRECT PHANTOM INSTEAD ↗</a></section></div>;
 }
 createRoot(document.getElementById('accountRoot')).render(<PrivyProvider appId={APP_ID} config={{embeddedWallets:{solana:{createOnLogin:'users-without-wallets'}},appearance:{theme:'dark',accentColor:'#d8b279'},solana:{rpcs:{'solana:mainnet':'https://api.mainnet-beta.solana.com'}}}}><Account/></PrivyProvider>);

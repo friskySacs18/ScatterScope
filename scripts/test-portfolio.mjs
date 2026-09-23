@@ -14,6 +14,6 @@ try{
   const data=await response.json();assert.equal(data.sol,2.5);assert.deepEqual(data.tokens,[{mint:wallet,uiAmount:'1.2345'}]);
   assert.equal((await worker.fetch(new Request('https://scope.test/api/portfolio?wallet=not-a-wallet'),{})).status,400);
   assert.equal((await worker.fetch(new Request('https://scope.test/portfolio'),{})).status,200);
-  assert.match(await (await worker.fetch(new Request('https://scope.test/portfolio'),{})).text(),/Trading status: inactive/);
+  assert.match(await (await worker.fetch(new Request('https://scope.test/portfolio'),{})).text(),/automatic trades inactive/);
   console.log('PASS: read-only Phantom portfolio route, RPC parsing and invalid address rejection');
 }finally{globalThis.fetch=original}
