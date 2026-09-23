@@ -82,6 +82,7 @@ function connect() {
     line({ type: 'disconnected', at: new Date().toISOString(), code });
     if (stopped) return;
     if ([1008, 4001, 4003, 4401, 4403].includes(code)) return finish('authentication_or_subscription_rejected');
+    if (connections === 0 || disconnects >= 5) return finish('connection_unavailable');
     setTimeout(connect, 3000).unref();
   });
 }
