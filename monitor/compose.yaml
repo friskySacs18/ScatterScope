@@ -1,0 +1,12 @@
+services:
+  callout-monitor:
+    build:
+      context: ..
+      dockerfile: monitor/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SCOPE_MONITOR_URL: https://scopetrade.live/api/automation/monitor-tick
+      SCOPE_MONITOR_SECRET: ${SCOPE_MONITOR_SECRET:?Set a 32+ character secret on the monitor host}
