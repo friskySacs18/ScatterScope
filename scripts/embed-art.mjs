@@ -3,6 +3,7 @@ import {build} from 'esbuild';
 const root=new URL('../',import.meta.url);
 const source=readFileSync(new URL('worker/index.js',root),'utf8');
 let built=source;
+built=built.replace('__HERO_MIC_SVG__',()=>readFileSync(new URL('assets/hero-mic.svg',root),'utf8').trim());
 built=built.replace('const portfolioPage = "__PORTFOLIO_HTML__";','const portfolioPage = '+JSON.stringify(readFileSync(new URL('assets/portfolio.html',root),'utf8'))+';');
 built=built.replace('const researchPage = "__RESEARCH_HTML__";','const researchPage = '+JSON.stringify(readFileSync(new URL('assets/research.html',root),'utf8'))+';');
 built=built.replace('const accountPage = "__ACCOUNT_HTML__";','const accountPage = '+JSON.stringify(readFileSync(new URL('assets/account.html',root),'utf8'))+';');
