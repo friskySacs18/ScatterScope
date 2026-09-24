@@ -1,0 +1,52 @@
+<svg viewBox="0 0 720 720" xmlns="http://www.w3.org/2000/svg" role="presentation">
+  <defs>
+    <radialGradient id="mic-halo"><stop stop-color="#b99968" stop-opacity=".29"/><stop offset=".48" stop-color="#457b7b" stop-opacity=".12"/><stop offset="1" stop-color="#15353b" stop-opacity="0"/></radialGradient>
+    <linearGradient id="mic-gold" x1="0" y1="0" x2="1" y2=".15"><stop stop-color="#614836"/><stop offset=".12" stop-color="#e8c98e"/><stop offset=".24" stop-color="#fff2c9"/><stop offset=".42" stop-color="#8b6946"/><stop offset=".63" stop-color="#dfbd7c"/><stop offset=".83" stop-color="#92704b"/><stop offset="1" stop-color="#3e372f"/></linearGradient>
+    <linearGradient id="mic-metal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#14252b"/><stop offset=".18" stop-color="#7a8880"/><stop offset=".34" stop-color="#192d31"/><stop offset=".57" stop-color="#46615e"/><stop offset=".78" stop-color="#10242a"/><stop offset="1" stop-color="#5c6253"/></linearGradient>
+    <linearGradient id="mic-grille" x1="0" y1="0" x2="1" y2=".25"><stop stop-color="#081a20"/><stop offset=".18" stop-color="#314347"/><stop offset=".42" stop-color="#12272d"/><stop offset=".67" stop-color="#253e41"/><stop offset="1" stop-color="#08191f"/></linearGradient>
+    <linearGradient id="mic-shine" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e9dfbf" stop-opacity="0"/><stop offset=".33" stop-color="#e9dfbf" stop-opacity=".4"/><stop offset=".5" stop-color="#e9dfbf" stop-opacity=".02"/><stop offset=".82" stop-color="#e9dfbf" stop-opacity=".24"/><stop offset="1" stop-color="#e9dfbf" stop-opacity="0"/></linearGradient>
+    <pattern id="mic-perforation" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="2.5" cy="2.5" r="1.15" fill="#e4d7b4" opacity=".65"/><circle cx="7.5" cy="7.5" r="1.15" fill="#020b10" opacity=".9"/></pattern>
+    <pattern id="mic-machining" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0 0h3" stroke="#d1b47c" stroke-opacity=".14" stroke-width=".55"/></pattern>
+    <clipPath id="mic-head-clip"><rect x="355" y="132" width="152" height="280" rx="75"/></clipPath>
+    <filter id="mic-soft-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="16"/></filter>
+  </defs>
+  <circle cx="432" cy="342" r="302" fill="url(#mic-halo)"/>
+  <g fill="none" stroke="#a5c7ba" opacity=".24">
+    <circle cx="432" cy="342" r="243" stroke-width="1"/>
+    <circle cx="432" cy="342" r="288" stroke-width=".7" stroke-dasharray="2 10"/>
+    <path d="M89 342h100m487 0h39M432 9v65m0 542v93" stroke-width=".75"/>
+    <path d="M429 98h6m-6 488h6M188 339v6m488-6v6" stroke="#edcb94" stroke-width="2"/>
+  </g>
+  <g class="horn-waves" fill="none" stroke="#d9b884" stroke-width="1.5" stroke-linecap="round"><path d="M559 174a202 202 0 0 1 0 336"/><path d="M592 139a246 246 0 0 1 0 407"/><path d="M625 103a295 295 0 0 1 0 477"/></g>
+  <g fill="none" stroke="#92c0ba" stroke-opacity=".28" stroke-width=".9"><path d="M195 406c44-13 55-34 94-29"/><path d="M216 429c36-15 54-19 72-15"/><circle cx="195" cy="406" r="2" fill="#d9b884" stroke="none"/></g>
+  <ellipse cx="434" cy="658" rx="155" ry="17" fill="#010b0d" opacity=".34" filter="url(#mic-soft-glow)"/>
+  <g transform="rotate(-23 431 348)">
+    <path d="M398 449 394 579q0 18 15 27l31 18q17 8 25-9l29-143-10-30Z" fill="#020c11" opacity=".6" transform="translate(15 13)" filter="url(#mic-soft-glow)"/>
+    <path d="M399 444 394 580q-1 17 13 25l29 18q17 8 24-9l32-148-8-26Z" fill="url(#mic-metal)" stroke="#a3a48b" stroke-opacity=".62" stroke-width="2"/>
+    <path d="M399 444 394 580q-1 17 13 25l29 18q17 8 24-9l32-148-8-26Z" fill="url(#mic-machining)"/>
+    <path d="M414 476 408 586q1 9 13 16" fill="none" stroke="#e2c995" stroke-opacity=".55" stroke-width="2"/>
+    <path d="M472 477 451 588" fill="none" stroke="#080e11" stroke-opacity=".7" stroke-width="6"/>
+    <path d="M405 552q34 21 64 7m-66 9q33 21 63 7" fill="none" stroke="#d6bd8b" stroke-opacity=".38" stroke-width="2"/>
+    <path d="M396 587q32 28 66 24l-4 15q-7 13-22 7l-36-22q-10-6-7-18Z" fill="url(#mic-gold)" stroke="#e9d09a" stroke-opacity=".65" stroke-width="1.5"/>
+    <rect x="405" y="403" width="76" height="83" rx="21" fill="url(#mic-metal)" stroke="#c8af7b" stroke-width="3"/>
+    <rect x="403" y="414" width="81" height="14" rx="5" fill="url(#mic-gold)"/>
+    <rect x="407" y="446" width="73" height="19" rx="4" fill="#071c23" stroke="#d2ae72" stroke-opacity=".72" stroke-width="2"/>
+    <path d="M413 455h61" stroke="#9bbeb3" stroke-opacity=".54" stroke-width="1"/>
+    <rect x="332" y="101" width="198" height="334" rx="99" fill="#050d11" opacity=".7" transform="translate(10 12)" filter="url(#mic-soft-glow)"/>
+    <rect x="330" y="96" width="202" height="342" rx="101" fill="url(#mic-gold)" stroke="#fde7ae" stroke-opacity=".75" stroke-width="2"/>
+    <rect x="346" y="113" width="170" height="306" rx="84" fill="#08191d" stroke="#332f25" stroke-width="2"/>
+    <g clip-path="url(#mic-head-clip)">
+      <rect x="355" y="132" width="152" height="280" fill="url(#mic-grille)"/>
+      <rect x="355" y="132" width="152" height="280" fill="url(#mic-perforation)" opacity=".79"/>
+      <path d="M353 168q77 21 156-1m-157 36q77 20 157-1m-157 36q78 21 158-1m-158 36q77 20 158-1m-158 36q79 21 159-1m-159 36q77 21 158-1m-157 35q76 19 157-1" fill="none" stroke="#d8c69e" stroke-opacity=".53" stroke-width="4"/>
+      <path d="M359 149q72-37 144 0m-144 236q72 34 144 0" fill="none" stroke="#d3b77c" stroke-opacity=".3" stroke-width="2"/>
+      <rect x="355" y="132" width="152" height="280" fill="url(#mic-shine)"/>
+    </g>
+    <rect x="355" y="132" width="152" height="280" rx="75" fill="none" stroke="#ecd5a0" stroke-opacity=".74" stroke-width="1.5"/>
+    <path d="M345 223v108m173-114v122" fill="none" stroke="#fff0bc" stroke-opacity=".68" stroke-width="2" stroke-linecap="round"/>
+    <path d="M369 120q48-28 103-5" fill="none" stroke="#fff5d2" stroke-opacity=".85" stroke-width="2" stroke-linecap="round"/>
+    <path d="M349 397q85 28 164 0" fill="none" stroke="#684c35" stroke-opacity=".6" stroke-width="2"/>
+  </g>
+  <g font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="2" fill="#d8c19b" opacity=".75"><text x="136" y="206">SIGNAL / 001</text><text x="573" y="640">SCOPE AUDIO</text></g>
+  <g fill="none" stroke="#e6cf9f" stroke-opacity=".55" stroke-width="1"><path d="M190 215h82l26 22"/><circle cx="298" cy="237" r="2" fill="#e6cf9f" stroke="none"/><path d="M560 610h-28l-34-24"/><circle cx="498" cy="586" r="2" fill="#e6cf9f" stroke="none"/></g>
+</svg>
