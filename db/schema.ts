@@ -127,3 +127,35 @@ export const automationDrafts = sqliteTable("automation_drafts", {
   rulesJson: text("rules_json").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+// Verified read-only callout observations; never an instruction to trade.
+export const monitoredCallouts = sqliteTable("monitored_callouts", {
+  id: text("id").primaryKey(),
+  callerWallet: text("caller_wallet").notNull(),
+  mint: text("mint").notNull(),
+  publishedAt: integer("published_at").notNull(),
+  observedAt: integer("observed_at").notNull(),
+  source: text("source").notNull(),
+}, table => [index("idx_monitored_callouts_observed_at").on(table.observedAt)]);
+
+// "First observed" does not mean first ever. A verified history backfill must
+// explicitly set historyComplete before any call can qualify for execution.
+export const callerMintHistory = sqliteTable("caller_mint_history", {
+  id: text("id").primaryKey(),
+  callerWallet: text("caller_wallet").notNull(),
+  mint: text("mint").notNull(),
+  firstCalloutId: text("first_callout_id").notNull(),
+  firstPublishedAt: integer("first_published_at").notNull(),
+  historyComplete: integer("history_complete").notNull().default(0),
+}, table => [uniqueIndex("uidx_caller_mint_history").on(table.callerWallet,table.mint)]);
+
+// Unique per account and mint, even when two callers post the same coin.
+// Pending/uncertain orders keep their lock until an operator reconciles them.
+export const accountMintLocks = sqliteTable("account_mint_locks", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id),
+  mint: text("mint").notNull(),
+  signalId: text("signal_id").notNull(),
+  state: text("state").notNull().default("reserved"),
+  createdAt: integer("created_at").notNull(),
+}, table => [uniqueIndex("uidx_account_mint_locks").on(table.accountId,table.mint)]);
