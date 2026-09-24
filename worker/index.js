@@ -544,7 +544,7 @@ export function parseRecentPumpCallouts(payload, observedAt=Date.now()){
     let publishedAt=typeof value==='string'&&!/^\d+$/.test(value)?Date.parse(value):Number(value);
     if(publishedAt>0&&publishedAt<1e11)publishedAt*=1000;
     if(!Number.isFinite(publishedAt)||publishedAt<1e12||publishedAt>observedAt+10000)continue;
-    rows.push({id,caller,mint,publishedAt,observedAt});
+    rows.push({id,calloutId:id,caller,mint,publishedAt,observedAt});
   }
   return rows;
 }
@@ -556,7 +556,7 @@ async function recentCallouts(request,env){
     try{
       const state=await env.DB.prepare('SELECT last_seen_at AS lastSeenAt FROM callout_ingest_state WHERE source = ?').bind('tweetstream').first();
       if(!state||now-Number(state.lastSeenAt)>30000)return json({error:'Callout stream disconnected or stale. Monitoring paused.',callouts:[],source:'tweetstream',lastSeenAt:state?.lastSeenAt||null},503);
-      const result=await env.DB.prepare('SELECT id, caller_wallet AS caller, mint, published_at AS publishedAt, observed_at AS observedAt FROM callout_observations WHERE received_at >= ? ORDER BY received_at DESC LIMIT 100').bind(now-600000).all();
+      const result=await env.DB.prepare('SELECT id, callout_id AS calloutId, caller_wallet AS caller, mint, published_at AS publishedAt, observed_at AS observedAt FROM callout_observations WHERE received_at >= ? ORDER BY received_at DESC LIMIT 100').bind(now-600000).all();
       return json({source:'tweetstream',fetchedAt:now,lastSeenAt:state.lastSeenAt,intervalMs:8000,mode:'paper-observation',callouts:result.results||[]});
     }catch(error){console.error('Callout storage:',String(error?.message||error));return json({error:'Callout storage unavailable. Monitoring paused.',callouts:[]},503)}
   }
@@ -590,9 +590,9 @@ async function ingestCallout(request,env){
     await env.DB.prepare('INSERT INTO callout_ingest_state (source,last_seen_at) VALUES (?,?) ON CONFLICT(source) DO UPDATE SET last_seen_at = excluded.last_seen_at').bind('tweetstream',now).run();
     return json({accepted:true,mode:'paper-observation'});
   }
-  const id=String(body.id||''),caller=String(body.caller||''),mint=String(body.mint||''),publishedAt=Number(body.publishedAt);
-  if(body.type!=='callout'||!/^[a-zA-Z0-9._-]{8,100}$/.test(id)||!solanaAddress.test(caller)||!solanaAddress.test(mint)||!Number.isSafeInteger(publishedAt)||publishedAt>at+2000||at-publishedAt>90000)return json({error:'Invalid or stale callout'},400);
-  const result=await env.DB.prepare('INSERT OR IGNORE INTO callout_observations (id,caller_wallet,mint,published_at,observed_at,source,received_at) VALUES (?,?,?,?,?,?,?)').bind(id,caller,mint,publishedAt,at,'tweetstream',now).run();
+  const id=String(body.id||''),calloutId=String(body.calloutId||''),caller=String(body.caller||''),mint=String(body.mint||''),publishedAt=Number(body.publishedAt);
+  if(body.type!=='callout'||!/^[a-zA-Z0-9._-]{8,100}$/.test(id)||!/^[a-zA-Z0-9-]{8,80}$/.test(calloutId)||!solanaAddress.test(caller)||!solanaAddress.test(mint)||!Number.isSafeInteger(publishedAt)||publishedAt>at+2000||at-publishedAt>90000)return json({error:'Invalid or stale callout'},400);
+  const result=await env.DB.prepare('INSERT OR IGNORE INTO callout_observations (id,callout_id,caller_wallet,mint,published_at,observed_at,source,received_at) VALUES (?,?,?,?,?,?,?,?)').bind(id,calloutId,caller,mint,publishedAt,at,'tweetstream',now).run();
   await env.DB.prepare('INSERT INTO callout_ingest_state (source,last_seen_at,last_callout_at) VALUES (?,?,?) ON CONFLICT(source) DO UPDATE SET last_seen_at = excluded.last_seen_at, last_callout_at = excluded.last_callout_at').bind('tweetstream',now,now).run();
   return json({accepted:true,duplicate:result.meta?.changes===0,mode:'paper-observation'});
 }
