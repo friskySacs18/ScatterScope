@@ -5,6 +5,8 @@ const homepage = await (await worker.fetch(new Request('https://test/'), {})).te
 const archive = await (await worker.fetch(new Request('https://test/launch-research'), {})).text();
 assert.match(homepage, /caller field/i);
 assert.match(homepage, /Research archive/);
+assert.match(homepage, /Set the snipe/);
+assert.doesNotMatch(homepage, /trade Pump tokens manually today/);
 assert.doesNotMatch(homepage, /Separate launch research/);
 assert.match(archive, /Launch research/);
 assert.match(archive, /Historical simulations are research/);
@@ -13,4 +15,9 @@ assert.doesNotMatch(archive, /Shadow execution tape|scene-rack|LITEPAPER · SIMP
 const execution = await (await worker.fetch(new Request('https://test/api/execution-status'), {})).json();
 assert.equal(execution.liveTrading, false);
 assert.equal(execution.killSwitch, 'engaged');
+const account = await (await worker.fetch(new Request('https://test/account'), {})).text();
+assert.match(account, /Set up your snipes/);
+const accountScript = await (await worker.fetch(new Request('https://test/account.js'), {})).text();
+assert.match(accountScript, /VERIFY ACCOUNT WALLET/);
+assert.doesNotMatch(accountScript, /Buy or sell Pump tokens/);
 console.log('Caller field, unobtrusive research archive and locked execution verified');
