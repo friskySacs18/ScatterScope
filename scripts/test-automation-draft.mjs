@@ -20,7 +20,8 @@ const db={prepare(sql){return {bind(...values){return {
 }}}}};
 const env={DB:db,PRIVY_ACCESS_TOKEN_VERIFICATION_KEY:pem};
 const alice=await token('did:privy:alice_123456'),bob=await token('did:privy:bob_123456');
-const body={wallet:'11111111111111111111111111111111',callers:[{wallet:'11111111111111111111111111111111',username:'sample'}],rules:{spend:.5,profit1Percent:50,profit1Sell:50,profit2Percent:100,profit2Sell:50,stopPercent:25}};
+const tiers=[{belowUsd:100000,spendSol:1},{belowUsd:1000000,spendSol:3},{belowUsd:null,spendSol:10}];
+const body={wallet:'11111111111111111111111111111111',callers:[{wallet:'11111111111111111111111111111111',username:'sample'}],rules:{marketCapBands:tiers,profit1Percent:50,profit1Sell:50,profit2Percent:100,profit2Sell:50,stopPercent:25}};
 const url='https://local.test/api/automation/draft';
 async function call(method,bearer,data,environment=env){const response=await worker.fetch(new Request(url,{method,headers:{...(bearer?{authorization:'Bearer '+bearer}:{}),...(data?{'content-type':'application/json'}:{})},body:data?JSON.stringify(data):undefined}),environment);return {status:response.status,body:await response.json()}}
 assert.equal((await call('GET',null)).status,401);
@@ -28,11 +29,16 @@ assert.equal((await call('PUT',alice,body,{DB:db})).status,503);
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{aud:'wrong'}),body)).status,401);
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{exp:1}),body)).status,401);
 assert.equal((await call('PUT',alice.slice(0,-3)+'abc',body)).status,401);
-assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,spend:5.1}})).status,400);
+assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,marketCapBands:[...tiers.slice(0,2),{belowUsd:null,spendSol:20}]}})).status,200);
+assert.equal((await call('GET',alice)).body.draft.rules.marketCapBands[2].spendSol,20);
+assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,marketCapBands:undefined}})).status,400);
+assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,marketCapBands:[...tiers.slice(0,2),{belowUsd:null,spendSol:Number.MAX_SAFE_INTEGER}]}})).status,400);
+assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,marketCapBands:tiers}})).status,200);
+assert.equal((await call('GET',alice)).body.draft.rules.marketCapBands[2].spendSol,10);
 assert.equal((await call('PUT',alice,{...body,callers:[body.callers[0],body.callers[0]]})).status,400);
 assert.equal((await call('PUT',alice,body)).status,200);
 assert.equal((await call('GET',bob)).body.draft,null);
-assert.deepEqual((await call('GET',alice)).body.draft.rules,body.rules);
+assert.deepEqual((await call('GET',alice)).body.draft.rules.marketCapBands,tiers);
 assert.equal((await call('DELETE',bob)).status,200);
 assert.notEqual((await call('GET',alice)).body.draft,null);
 assert.equal((await call('DELETE',alice)).status,200);
