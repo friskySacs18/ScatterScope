@@ -1,0 +1,7 @@
+# Callout watch status — 2026-09-24
+
+The homepage checks `/api/callouts/recent` every eight seconds while the tab is visible and at least one caller is saved. It matches Pump wallet IDs against the browser's saved watchlist, deduplicates call IDs, and displays observations without placing orders. The first successful poll is a baseline, so existing calls are not mislabeled as new.
+
+The Worker requests `https://frontend-api-v3.pump.fun/callout/recent?limit=20`. This route was described in a third-party open-source client, but the deployed Scope Worker received HTTP 400 from Pump on 2026-09-24. The endpoint currently responds 503 to the browser with a visible feed-unavailable message. No observed Callout has been verified from this source. The 8-second interval is a check cadence, not a measured detection latency. This browser watcher also stops when the page is closed or hidden.
+
+Before a live order route can be enabled: establish a permitted, reliable, timestamped Callout source; measure publication-to-observation latency and missing-call rate over actual caller samples; persist subscriptions and dedup state on an always-on process; validate caller identity and mint; implement an unattended signer with per-user caps, funding and withdrawal isolation, kill switch, quotes, slippage, transaction confirmation, reconciliation, and rollback. Phantom manual signing alone cannot execute unattended orders. Current execution controls remain locked with a zero SOL spending cap.
