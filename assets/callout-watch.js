@@ -33,7 +33,7 @@
       const entry = document.createElement('div');
       entry.className = 'paper-line';
       const link = document.createElement('a');
-      link.href = 'https://pump.fun/callouts/' + encodeURIComponent(row.mint) + '/' + encodeURIComponent(row.id);
+      link.href = row.calloutId ? 'https://pump.fun/callouts/' + encodeURIComponent(row.mint) + '/' + encodeURIComponent(row.calloutId) : 'https://pump.fun/coin/' + encodeURIComponent(row.mint);
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.textContent = (row.name ? '@' + row.name : row.caller.slice(0, 8) + '…') + ' called ' + row.mint.slice(0, 8) + '…' + row.mint.slice(-5);
