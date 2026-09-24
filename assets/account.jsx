@@ -68,6 +68,7 @@ function TradePanel({wallet,balance,holdings,onRefresh}){
 }
 
 function AutoTradeSetup({address}){
+  const {getAccessToken}=usePrivy();
   const {addSigners}=useSigners();
   const [signerSetup,setSignerSetup]=useState(null),[granting,setGranting]=useState(false);
   useEffect(()=>{let active=true;fetch('/api/automation/signer-setup',{cache:'no-store'}).then(response=>response.json()).then(data=>{if(active)setSignerSetup(data)}).catch(()=>{if(active)setSignerSetup({ready:false,reason:'Signer setup is unavailable'})});return()=>{active=false}},[address]);
@@ -79,19 +80,36 @@ function AutoTradeSetup({address}){
   const [secondSell,setSecondSell]=useState(String(saved.profit2Sell??50));
   const [stop,setStop]=useState(String(saved.stopPercent??25));
   const [message,setMessage]=useState('');
-  function save(event){
+  useEffect(()=>{if(!address)return;let cancelled=false;(async()=>{
+    try{const token=await getAccessToken();if(!token)return;const response=await fetch('/api/automation/draft',{headers:{Authorization:'Bearer '+token},cache:'no-store'});if(!response.ok)return;const data=await response.json();const draft=data.draft;
+      if(cancelled||!draft||draft.wallet!==address)return;
+      const r=draft.rules;setSpend(String(r.spend));setFirst(String(r.profit1Percent));setFirstSell(String(r.profit1Sell));setSecond(String(r.profit2Percent));setSecondSell(String(r.profit2Sell));setStop(String(r.stopPercent));
+      if(Array.isArray(draft.callers)&&!localStorage.getItem('scope-caller-watchlist-v1'))localStorage.setItem('scope-caller-watchlist-v1',JSON.stringify(draft.callers));
+      setMessage('Your saved account draft was restored. Automatic orders are still off.');
+    }catch{/* Device draft stays available when the account API is unavailable. */}
+  })();return()=>{cancelled=true}},[address,getAccessToken]);
+  async function save(event){
     event.preventDefault();
     const n=[spend,first,firstSell,second,secondSell,stop].map(Number);
     if(!Number.isFinite(n[0])||n[0]<.001||n[0]>5||!Number.isInteger(n[1])||n[1]<1||n[1]>10000||!Number.isInteger(n[2])||n[2]<1||n[2]>100||!Number.isInteger(n[3])||n[3]<=n[1]||n[3]>10000||!Number.isInteger(n[4])||n[4]<1||n[4]>100||n[2]+n[4]>100||!Number.isInteger(n[5])||n[5]<1||n[5]>99){setMessage('Enter a spend up to 5 SOL, ascending profit targets, total sales up to 100%, and a stop loss from 1–99%.');return}
     const state={fundingMode:'scope',spend:n[0],useProfit:true,profit1Percent:n[1],profit1Sell:n[2],profit2Percent:n[3],profit2Sell:n[4],useStop:true,stopPercent:n[5]};
-    try{localStorage.setItem('scope-trading-setup-v2',JSON.stringify(state));setSaved(state);setMessage('Saved on this device. These rules do not place automatic orders yet.')}catch{setMessage('Device storage unavailable; rules were not saved.')}
+    try{localStorage.setItem('scope-trading-setup-v2',JSON.stringify(state));setSaved(state)}catch{setMessage('Device storage unavailable; rules were not saved.');return}
+    setMessage('Draft saved on this device. Saving to your account…');
+    try{
+      const token=await getAccessToken();if(!token||!address)throw Error('Sign in and create your Scope wallet to sync this draft.');
+      const raw=JSON.parse(localStorage.getItem('scope-caller-watchlist-v1')||'[]');
+      const callers=(Array.isArray(raw)?raw:[]).map(x=>typeof x==='string'?{wallet:x,username:''}:{wallet:x.wallet,username:x.username||''});
+      const response=await fetch('/api/automation/draft',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({wallet:address,callers,rules:{spend:n[0],profit1Percent:n[1],profit1Sell:n[2],profit2Percent:n[3],profit2Sell:n[4],stopPercent:n[5]}})});
+      const result=await response.json();if(!response.ok)throw Error(result.error||'Account draft unavailable');
+      setMessage('Callers and rules saved to your account as a draft. Automatic orders remain off.');
+    }catch(error){setMessage('Saved on this device only. '+(error.message||'Account sync unavailable')+' Automatic orders remain off.')}
   }
   async function authorize(){
     if(!address||!signerSetup?.ready||!signerSetup.policyId||!signerSetup.quorumId||granting)return;
     setGranting(true);setMessage('Review the wallet permission request in Privy.');
     try{await addSigners({address,signers:[{signerId:signerSetup.quorumId,policyIds:[signerSetup.policyId]}]});setMessage('Signer authorized under the restricted policy. Automatic orders remain off until the execution service is enabled.')}catch(error){setMessage(error?.message||'Signer authorization was not completed.')}finally{setGranting(false)}
   }
-  return <section className="panel wide" id="autoRules"><span className="tag">03 / AUTOMATIC TRADE RULES</span><h2>Choose your limits</h2><p>Set the SOL spent per call, two profit sell targets, and a stop loss. Your settings are a draft until unattended execution is enabled.</p><details><summary className="action">EDIT RULES</summary><form onSubmit={save} className="trade-grid"><label className="field"><span>SPEND PER CALL / SOL</span><input type="number" min="0.001" max="5" step="0.001" value={spend} onChange={e=>setSpend(e.target.value)} required/></label><label className="field"><span>FIRST PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={first} onChange={e=>setFirst(e.target.value)} required/></label><label className="field"><span>SELL AT FIRST / % OF POSITION</span><input type="number" min="1" max="100" value={firstSell} onChange={e=>setFirstSell(e.target.value)} required/></label><label className="field"><span>SECOND PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={second} onChange={e=>setSecond(e.target.value)} required/></label><label className="field"><span>SELL AT SECOND / % OF POSITION</span><input type="number" min="1" max="100" value={secondSell} onChange={e=>setSecondSell(e.target.value)} required/></label><label className="field"><span>STOP LOSS / % BELOW ENTRY</span><input type="number" min="1" max="99" value={stop} onChange={e=>setStop(e.target.value)} required/></label><button className="action primary" type="submit">SAVE RULES</button></form></details><div className="note"><strong>Automatic trade permission</strong><p>Your Scope wallet can authorize a server signer under a restricted Privy policy. Privy will ask you to review this separately. The signer policy permits direct transfers up to 0.01 SOL; the normal withdrawal form asks for separate approval.</p><button type="button" className="action" disabled={!signerSetup?.ready||granting||!address} onClick={authorize}>AUTHORIZE IN PRIVY</button><p>{signerSetup?.reason||(!signerSetup?.ready?'Checking signer and policy…':'Review the policy before you authorize.')}</p></div><p className="status" role="status">{message||'Automatic spending is locked. Manual trades still need your approval.'}</p></section>;
+  return <section className="panel wide" id="autoRules"><span className="tag">03 / AUTOMATIC TRADE RULES</span><h2>Choose your limits</h2><p>Add callers on the <a href="/#callerDesk">Caller Field</a>, then save them here with your spend, profit targets, and stop loss. Your settings remain a draft until unattended execution is enabled.</p><details><summary className="action">EDIT RULES</summary><form onSubmit={save} className="trade-grid"><label className="field"><span>SPEND PER CALL / SOL</span><input type="number" min="0.001" max="5" step="0.001" value={spend} onChange={e=>setSpend(e.target.value)} required/></label><label className="field"><span>FIRST PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={first} onChange={e=>setFirst(e.target.value)} required/></label><label className="field"><span>SELL AT FIRST / % OF POSITION</span><input type="number" min="1" max="100" value={firstSell} onChange={e=>setFirstSell(e.target.value)} required/></label><label className="field"><span>SECOND PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={second} onChange={e=>setSecond(e.target.value)} required/></label><label className="field"><span>SELL AT SECOND / % OF POSITION</span><input type="number" min="1" max="100" value={secondSell} onChange={e=>setSecondSell(e.target.value)} required/></label><label className="field"><span>STOP LOSS / % BELOW ENTRY</span><input type="number" min="1" max="99" value={stop} onChange={e=>setStop(e.target.value)} required/></label><button className="action primary" type="submit">SAVE RULES</button></form></details><div className="note"><strong>Automatic trade permission</strong><p>Your Scope wallet can authorize a server signer under a restricted Privy policy. Privy will ask you to review this separately. The signer policy permits direct transfers up to 0.01 SOL; the normal withdrawal form asks for separate approval.</p><button type="button" className="action" disabled={!signerSetup?.ready||granting||!address} onClick={authorize}>AUTHORIZE IN PRIVY</button><p>{signerSetup?.reason||(!signerSetup?.ready?'Checking signer and policy…':'Review the policy before you authorize.')}</p></div><p className="status" role="status">{message||'Automatic spending is locked. Manual trades still need your approval.'}</p></section>;
 }
 
 function Account(){
