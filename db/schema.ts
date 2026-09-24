@@ -100,6 +100,7 @@ export const accountOrders = sqliteTable("account_orders", {
 // Provider observations are evidence, never authorization to spend.
 export const calloutObservations = sqliteTable("callout_observations", {
   id: text("id").primaryKey(),
+  calloutId: text("callout_id"),
   callerWallet: text("caller_wallet").notNull(),
   mint: text("mint").notNull(),
   publishedAt: integer("published_at").notNull(),
