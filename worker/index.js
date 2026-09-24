@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-09-24-r66";
+const BUILD_ID = "2026-09-24-r67";
 const chamberShader = "";
 const page = `<!doctype html>
 <html lang="en" class="booting" data-build="${BUILD_ID}">
@@ -614,6 +614,76 @@ let privyCredentialCheck={at:0,result:null};
 let privyPolicyCheck={at:0,result:null};
 const SCOPE_SIGNER_QUORUM_ID='kzp9n6z4hxygbdqs4sf3dprc';
 const SCOPE_SIGNER_PUBLIC_KEY='MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaQph05zAtLWHumLVHHwRYs+O/WIxDCCI3Hvmu9RSOaGHPlhHm70K/LzCuab7v67SjL5I0yYbMejxw6H1sRAL8w==';
+const PRIVY_APP_ID='cmuejmq9g00eg0cla13182nah';
+function decodeBase64Url(value){
+  if(!/^[A-Za-z0-9_-]+$/.test(value)||value.length>4096)throw Error('Invalid token encoding');
+  return Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4)),c=>c.charCodeAt(0));
+}
+async function verifiedPrivySubject(request,env){
+  // Privy's public access-token verification key is distinct from the server signer key.
+  const pem=env?.PRIVY_ACCESS_TOKEN_VERIFICATION_KEY;
+  if(!pem||typeof pem!=='string'||!pem.includes('BEGIN PUBLIC KEY'))return {error:'Account draft storage is awaiting the Privy verification key',status:503};
+  const authorization=request.headers.get('authorization')||'';
+  if(!/^Bearer [A-Za-z0-9._-]+$/.test(authorization)||authorization.length>4096)return {error:'Privy login required',status:401};
+  try{
+    const parts=authorization.slice(7).split('.');
+    if(parts.length!==3)return {error:'Invalid login token',status:401};
+    const header=JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[0])));
+    if(header.alg!=='ES256'||(header.typ&&header.typ!=='JWT'))return {error:'Invalid login token',status:401};
+    const der=Uint8Array.from(atob(pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'')),c=>c.charCodeAt(0));
+    const key=await crypto.subtle.importKey('spki',der,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+    const valid=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,decodeBase64Url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
+    if(!valid)return {error:'Invalid login token',status:401};
+    const payload=JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[1]))),now=Math.floor(Date.now()/1000);
+    if(payload.iss!=='privy.io'||payload.aud!==PRIVY_APP_ID||!/^did:privy:[a-zA-Z0-9_-]{8,120}$/.test(payload.sub||'')||
+      !Number.isSafeInteger(payload.exp)||payload.exp<=now||!Number.isSafeInteger(payload.iat)||payload.iat>now+30||
+      payload.exp-payload.iat>7200)return {error:'Expired or invalid login token',status:401};
+    return {subject:payload.sub};
+  }catch{return {error:'Invalid login token',status:401}}
+}
+function validateAutomationDraft(body){
+  if(!body||typeof body!=='object'||Array.isArray(body)||!solanaAddress.test(body.wallet||''))return null;
+  const callers=body.callers,r=body.rules;
+  if(!Array.isArray(callers)||callers.length>12||!r||typeof r!=='object'||Array.isArray(r))return null;
+  const wallets=new Set();
+  for(const entry of callers){
+    if(!entry||!solanaAddress.test(entry.wallet||'')||typeof entry.username!=='string'||entry.username.length>50||wallets.has(entry.wallet))return null;
+    wallets.add(entry.wallet);
+  }
+  const fields=['spend','profit1Percent','profit1Sell','profit2Percent','profit2Sell','stopPercent'];
+  if(fields.some(k=>typeof r[k]!=='number'||!Number.isFinite(r[k])))return null;
+  if(r.spend<.001||r.spend>5||Math.abs(Math.round(r.spend*1e9)-r.spend*1e9)>0.001)return null;
+  if(![r.profit1Percent,r.profit1Sell,r.profit2Percent,r.profit2Sell,r.stopPercent].every(Number.isInteger)||
+    r.profit1Percent<1||r.profit1Percent>=r.profit2Percent||r.profit2Percent>10000||
+    r.profit1Sell<1||r.profit2Sell<1||r.profit1Sell+r.profit2Sell>100||r.stopPercent<1||r.stopPercent>99)return null;
+  return {wallet:body.wallet,callers:callers.map(({wallet,username})=>({wallet,username})),rules:Object.fromEntries(fields.map(k=>[k,r[k]]))};
+}
+async function automationDraft(request,env){
+  if(!['GET','PUT','DELETE'].includes(request.method))return json({error:'GET, PUT or DELETE required'},405);
+  if(!env.DB?.prepare)return json({error:'Draft storage unavailable'},503);
+  const auth=await verifiedPrivySubject(request,env);
+  if(!auth.subject)return json({error:auth.error},auth.status);
+  try{
+    if(request.method==='GET'){
+      const row=await env.DB.prepare('SELECT wallet_address AS wallet,callers_json AS callers,rules_json AS rules,updated_at AS updatedAt FROM automation_drafts WHERE auth_subject = ?').bind(auth.subject).first();
+      return json({draft:row?{wallet:row.wallet,callers:JSON.parse(row.callers),rules:JSON.parse(row.rules),updatedAt:row.updatedAt}:null,executionEnabled:false});
+    }
+    if(request.method==='DELETE'){
+      await env.DB.prepare('DELETE FROM automation_drafts WHERE auth_subject = ?').bind(auth.subject).run();
+      return json({deleted:true,executionEnabled:false});
+    }
+    if(!request.headers.get('content-type')?.startsWith('application/json')||Number(request.headers.get('content-length')||0)>4000)return json({error:'Invalid draft'},400);
+    const raw=await request.text();
+    if(raw.length>4000)return json({error:'Draft too large'},413);
+    let body;try{body=JSON.parse(raw)}catch{return json({error:'Invalid JSON'},400)}
+    const draft=validateAutomationDraft(body);
+    if(!draft)return json({error:'Invalid wallet, callers or trade limits'},400);
+    const now=Date.now();
+    await env.DB.prepare('INSERT INTO automation_drafts (auth_subject,wallet_address,callers_json,rules_json,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(auth_subject) DO UPDATE SET wallet_address=excluded.wallet_address,callers_json=excluded.callers_json,rules_json=excluded.rules_json,updated_at=excluded.updated_at')
+      .bind(auth.subject,draft.wallet,JSON.stringify(draft.callers),JSON.stringify(draft.rules),now).run();
+    return json({saved:true,updatedAt:now,executionEnabled:false});
+  }catch(error){console.error('Draft storage:',String(error?.message||error));return json({error:'Draft storage unavailable'},503)}
+}
 async function checkPrivyCredentials(env){
   if(!env?.PRIVY_APP_SECRET)return {configured:false,authenticated:false,signerRegistered:false};
   if(Date.now()-privyCredentialCheck.at<60000&&privyCredentialCheck.result)return privyCredentialCheck.result;
@@ -660,7 +730,7 @@ async function automationReadiness(env){
   const observedAt=provider==='tweetstream'?lastSeenAt:lastPumpSourceAt;
   const sourceLive=Number.isSafeInteger(observedAt)&&Date.now()-observedAt<30000;
   const [privy,policy]=await Promise.all([checkPrivyCredentials(env),checkPrivyPolicy(env)]);
-  return json({mode:'paper-observation',sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Obtain user authorization after server order controls are ready','No persistent server-side subscriptions or order execution and reconciliation','No funded canary execution']});
+  return json({mode:'paper-observation',draftStorageConfigured:Boolean(env?.PRIVY_ACCESS_TOKEN_VERIFICATION_KEY),sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Obtain user authorization after server order controls are ready','No persistent background watcher or order execution and reconciliation','No funded canary execution']});
 }
 const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
 const pageHeaders={"content-type":"text/html; charset=utf-8","cache-control":"no-store, no-cache, must-revalidate, max-age=0","cdn-cache-control":"no-store","surrogate-control":"no-store","pragma":"no-cache","expires":"0","clear-site-data":"\"cache\"","x-scatterscope-build":BUILD_ID,...secure};
@@ -1098,4 +1168,4 @@ async function resolveCaller(request){
   }catch{return json({error:'Pump profile lookup is unavailable. Try again shortly.'},502)}
 }
 
-export default{async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/api/build")return json({buildId:BUILD_ID});if(url.pathname==="/account.js")return new Response(accountScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/api/account/balance")return accountRpc(request,env,"getBalance");if(url.pathname==="/api/account/blockhash")return accountRpc(request,env,"getLatestBlockhash");if(url.pathname==="/manual-trade.js")return new Response(manualTradeScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/callout-watch.js")return new Response(calloutWatchScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/api/manual-trade/build")return buildManualTrade(request,env);if(url.pathname==="/api/manual-trade/status")return manualTradeStatus(request,env);if(url.pathname==="/api/portfolio")return portfolioBalances(request,env);if(url.pathname==="/api/callouts/recent")return recentCallouts(request,env);if(url.pathname==="/api/callouts/ingest")return ingestCallout(request,env);if(url.pathname==="/api/callouts/resolve")return resolveCaller(request);if(url.pathname==="/api/callouts/access")return json(calloutAccess);if(url.pathname==="/api/latest-test")return json(latestEvidence||{pending:true});if(url.pathname==="/api/execution-status")return json(executionControl);if(url.pathname==="/api/automation/readiness")return automationReadiness(env);if(url.pathname==="/api/automation/signer-setup")return signerSetup(env);if(url.pathname==="/api/execution-readiness")return json(await executionReadiness(env.DB));if(url.pathname==="/api/research-snapshot"){const analysis=await analyzeCampaign(env.DB);return json({analysis,readiness:executionReadinessFromAnalysis(analysis)})}if(url.pathname==="/api/generation-2")return json(await analyzeGeneration2(env.DB));if(url.pathname==="/api/generation-3")return json(await analyzeGeneration3(env.DB));if(url.pathname==="/api/generation-4")return json(await analyzeGeneration4(env.DB));if(url.pathname==="/api/size-sweep")return json(await analyzeSizeSweep(env.DB));if(url.pathname==="/api/callouts/replay")return handleCalloutReplay(request);if(url.pathname==="/api/execution/canary"&&request.method==="POST")return json({error:"Live-capital interlock is locked",readiness:await executionReadiness(env.DB)},423);if(url.pathname==="/api/campaign/status")return json(await readCampaignStatus(env.DB));if(url.pathname==="/api/campaign/analysis")return json(await analyzeCampaign(env.DB));if(url.pathname==="/api/campaign/batch")return forwardTest(request,env,{durationMs:90000,intakeMs:30000,maxTokens:20,maxTradeMessages:3000});if(url.pathname==="/api/forward-test")return forwardTest(request,env);if(url.pathname==="/api/status")return json({configured:Boolean(env.PUMPPORTAL_API_KEY),stream:"new-token-and-trades",buildId:BUILD_ID,...executionControl});if(url.pathname==="/api/inspect"&&request.method==="POST")return inspectMetadata(request);if(url.pathname==="/api/stream")return relay(request,env);if(url.pathname==="/account")return new Response(accountPage,{headers:accountHeaders});if(url.pathname==="/portfolio")return new Response(portfolioPage,{headers:pageHeaders});if(url.pathname==="/launch-research")return new Response(page,{headers:pageHeaders});if(url.pathname==="/")return new Response(calloutPage,{headers:pageHeaders});return new Response("Not found",{status:404,headers:secure})}};
+export default{async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/api/automation/draft")return automationDraft(request,env);if(url.pathname==="/api/build")return json({buildId:BUILD_ID});if(url.pathname==="/account.js")return new Response(accountScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/api/account/balance")return accountRpc(request,env,"getBalance");if(url.pathname==="/api/account/blockhash")return accountRpc(request,env,"getLatestBlockhash");if(url.pathname==="/manual-trade.js")return new Response(manualTradeScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/callout-watch.js")return new Response(calloutWatchScript,{headers:{"content-type":"text/javascript; charset=utf-8","cache-control":"no-store",...secure}});if(url.pathname==="/api/manual-trade/build")return buildManualTrade(request,env);if(url.pathname==="/api/manual-trade/status")return manualTradeStatus(request,env);if(url.pathname==="/api/portfolio")return portfolioBalances(request,env);if(url.pathname==="/api/callouts/recent")return recentCallouts(request,env);if(url.pathname==="/api/callouts/ingest")return ingestCallout(request,env);if(url.pathname==="/api/callouts/resolve")return resolveCaller(request);if(url.pathname==="/api/callouts/access")return json(calloutAccess);if(url.pathname==="/api/latest-test")return json(latestEvidence||{pending:true});if(url.pathname==="/api/execution-status")return json(executionControl);if(url.pathname==="/api/automation/readiness")return automationReadiness(env);if(url.pathname==="/api/automation/signer-setup")return signerSetup(env);if(url.pathname==="/api/execution-readiness")return json(await executionReadiness(env.DB));if(url.pathname==="/api/research-snapshot"){const analysis=await analyzeCampaign(env.DB);return json({analysis,readiness:executionReadinessFromAnalysis(analysis)})}if(url.pathname==="/api/generation-2")return json(await analyzeGeneration2(env.DB));if(url.pathname==="/api/generation-3")return json(await analyzeGeneration3(env.DB));if(url.pathname==="/api/generation-4")return json(await analyzeGeneration4(env.DB));if(url.pathname==="/api/size-sweep")return json(await analyzeSizeSweep(env.DB));if(url.pathname==="/api/callouts/replay")return handleCalloutReplay(request);if(url.pathname==="/api/execution/canary"&&request.method==="POST")return json({error:"Live-capital interlock is locked",readiness:await executionReadiness(env.DB)},423);if(url.pathname==="/api/campaign/status")return json(await readCampaignStatus(env.DB));if(url.pathname==="/api/campaign/analysis")return json(await analyzeCampaign(env.DB));if(url.pathname==="/api/campaign/batch")return forwardTest(request,env,{durationMs:90000,intakeMs:30000,maxTokens:20,maxTradeMessages:3000});if(url.pathname==="/api/forward-test")return forwardTest(request,env);if(url.pathname==="/api/status")return json({configured:Boolean(env.PUMPPORTAL_API_KEY),stream:"new-token-and-trades",buildId:BUILD_ID,...executionControl});if(url.pathname==="/api/inspect"&&request.method==="POST")return inspectMetadata(request);if(url.pathname==="/api/stream")return relay(request,env);if(url.pathname==="/account")return new Response(accountPage,{headers:accountHeaders});if(url.pathname==="/portfolio")return new Response(portfolioPage,{headers:pageHeaders});if(url.pathname==="/launch-research")return new Response(page,{headers:pageHeaders});if(url.pathname==="/")return new Response(calloutPage,{headers:pageHeaders});return new Response("Not found",{status:404,headers:secure})}};
