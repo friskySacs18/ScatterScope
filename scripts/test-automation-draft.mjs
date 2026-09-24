@@ -26,6 +26,20 @@ const url='https://local.test/api/automation/draft';
 async function call(method,bearer,data,environment=env){const response=await worker.fetch(new Request(url,{method,headers:{...(bearer?{authorization:'Bearer '+bearer}:{}),...(data?{'content-type':'application/json'}:{})},body:data?JSON.stringify(data):undefined}),environment);return {status:response.status,body:await response.json()}}
 assert.equal((await call('GET',null)).status,401);
 assert.equal((await call('PUT',alice,body,{DB:db})).status,503);
+const originalFetch=globalThis.fetch;
+let verificationRequests=0;
+try{
+  globalThis.fetch=async (url,options)=>{
+    assert.equal(url,'https://auth.privy.io/api/v1/apps/cmuejmq9g00eg0cla13182nah');
+    assert.equal(options.headers['privy-app-id'],'cmuejmq9g00eg0cla13182nah');
+    verificationRequests++;
+    return new Response(JSON.stringify({verification_key:pem}),{status:200});
+  };
+  const remoteEnv={DB:db,PRIVY_APP_SECRET:'test-app-secret'};
+  assert.equal((await call('PUT',alice,body,remoteEnv)).status,200);
+  assert.equal((await call('GET',alice,undefined,remoteEnv)).status,200);
+  assert.equal(verificationRequests,1);
+}finally{globalThis.fetch=originalFetch}
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{aud:'wrong'}),body)).status,401);
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{exp:1}),body)).status,401);
 assert.equal((await call('PUT',alice.slice(0,-3)+'abc',body)).status,401);
@@ -51,4 +65,4 @@ const edData=encode({alg:'EdDSA',typ:'JWT'})+'.'+encode({sub:'did:privy:eduser_1
 const edSignature=Buffer.from(await crypto.subtle.sign('Ed25519',edKeys.privateKey,new TextEncoder().encode(edData))).toString('base64url');
 assert.equal((await call('PUT',edData+'.'+edSignature,body,edEnv)).status,200);
 assert.equal((await call('GET',alice,undefined,edEnv)).status,401);
-console.log('Privy signature, expiration, account isolation, draft limits and deletion verified');
+console.log('Privy fetched public key, signature, expiration, account isolation, draft limits and deletion verified');
