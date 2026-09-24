@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-09-24-r65";
+const BUILD_ID = "2026-09-24-r66";
 const chamberShader = "";
 const page = `<!doctype html>
 <html lang="en" class="booting" data-build="${BUILD_ID}">
@@ -660,7 +660,7 @@ async function automationReadiness(env){
   const observedAt=provider==='tweetstream'?lastSeenAt:lastPumpSourceAt;
   const sourceLive=Number.isSafeInteger(observedAt)&&Date.now()-observedAt<30000;
   const [privy,policy]=await Promise.all([checkPrivyCredentials(env),checkPrivyPolicy(env)]);
-  return json({mode:'paper-observation',sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Attach a restricted Privy policy and obtain user authorization','No persistent server-side subscriptions or order execution and reconciliation','No funded canary execution']});
+  return json({mode:'paper-observation',sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Obtain user authorization after server order controls are ready','No persistent server-side subscriptions or order execution and reconciliation','No funded canary execution']});
 }
 const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
 const pageHeaders={"content-type":"text/html; charset=utf-8","cache-control":"no-store, no-cache, must-revalidate, max-age=0","cdn-cache-control":"no-store","surrogate-control":"no-store","pragma":"no-cache","expires":"0","clear-site-data":"\"cache\"","x-scatterscope-build":BUILD_ID,...secure};
