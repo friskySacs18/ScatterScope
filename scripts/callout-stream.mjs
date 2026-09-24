@@ -34,7 +34,9 @@ function normalize(event,receivedAt=Date.now()){
   const caller=wallets.get(String(data.caller?.username||'').toLowerCase());
   const mint=data.token?.address,publishedAt=Number(data.createdAt),id=String(event.id||'');
   if(!caller||typeof mint!=='string'||!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)||!/^[a-zA-Z0-9._-]{8,100}$/.test(id)||!Number.isSafeInteger(publishedAt)||publishedAt>receivedAt+2000||receivedAt-publishedAt>90000)return null;
-  return{type:'callout',id,caller,mint,publishedAt,observedAt:receivedAt};
+  const calloutId=String(data.calloutId||'');
+  if(!/^[a-zA-Z0-9-]{8,80}$/.test(calloutId))return null;
+  return{type:'callout',id,calloutId,caller,mint,publishedAt,observedAt:receivedAt};
 }
 async function connect(){
   const ws=new WebSocket('wss://ws-iad.tweetstream.io/ws',['tweetstream.v1',`tweetstream.auth.token.${key}`]);
