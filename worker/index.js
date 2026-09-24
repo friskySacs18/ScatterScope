@@ -374,20 +374,23 @@ async function accountRpc(request,env,method){
       }
     }catch(error){console.error('Scope balance read:',String(error?.message||error));return json({error:'Could not read this wallet’s SOL balance. Your deposit remains in the wallet; check its address in a Solana explorer and try again.'},502)}
   }
-  try{
-    const endpoint=env?.SOLANA_RPC_URL||"https://api.mainnet.solana.com";
-    const response=await fetch(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:method==="getBalance"?[wallet,{commitment:"confirmed"}]:[{commitment:"confirmed"}]}),signal:AbortSignal.timeout(8000)});
-    if(!response.ok)throw Error("RPC unavailable");
-    const data=await response.json();if(data.error)throw Error("RPC unavailable");
-    if(method==="getBalance"){
-      const lamports=data.result?.value;
-      if(!Number.isSafeInteger(lamports)||lamports<0)throw Error("Invalid balance");
-      return json({wallet,lamports});
-    }
-    const blockhash=data.result?.value?.blockhash;
-    if(!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhash||""))throw Error("Invalid blockhash");
-    return json({blockhash});
-  }catch{return json({error:"Solana RPC unavailable. Try again later."},502)}
+  const endpoints=[env?.SOLANA_RPC_URL,'https://solana-rpc.publicnode.com','https://api.mainnet.solana.com'].filter(Boolean);
+  for(const endpoint of [...new Set(endpoints)]){
+    try{
+      const response=await fetch(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:method==="getBalance"?[wallet,{commitment:"confirmed"}]:[{commitment:"confirmed"}]}),signal:AbortSignal.timeout(5500)});
+      if(!response.ok)throw Error('RPC HTTP '+response.status);
+      const data=await response.json();if(data.error)throw Error('RPC JSON error');
+      if(method==="getBalance"){
+        const lamports=data.result?.value;
+        if(!Number.isSafeInteger(lamports)||lamports<0)throw Error('Invalid balance');
+        return json({wallet,lamports});
+      }
+      const blockhash=data.result?.value?.blockhash;
+      if(!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(blockhash||''))throw Error('Invalid blockhash');
+      return json({blockhash});
+    }catch(error){console.warn('Scope RPC read failed',method,new URL(endpoint).hostname,String(error?.message||error));}
+  }
+  return json({error:'Solana blockhash service unavailable. Your SOL has not moved; please try again later.'},502);
 }
 async function portfolioBalances(request,env){
   if(request.method!=="GET")return json({error:"GET required"},405);
