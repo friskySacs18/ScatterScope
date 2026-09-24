@@ -15,4 +15,5 @@ built=built.replace('const manualTradeScript = "__MANUAL_TRADE_JS__";','const ma
 built=built.replace('const calloutWatchScript = "__CALLOUT_WATCH_JS__";','const calloutWatchScript = '+JSON.stringify(readFileSync(new URL('assets/callout-watch.js',root),'utf8'))+';');
 const report=new URL('research/latest.json',root);
 if(existsSync(report))built=built.replace('const latestEvidence=null;','const latestEvidence='+JSON.stringify(JSON.parse(readFileSync(report,'utf8')))+';');
-writeFileSync(new URL('dist/server/index.js',root),built);
+const workerBundle=await build({stdin:{contents:built,resolveDir:new URL('worker/',root).pathname,sourcefile:'scope-worker.js',loader:'js'},bundle:true,platform:'browser',format:'esm',target:'es2022',write:false});
+writeFileSync(new URL('dist/server/index.js',root),workerBundle.outputFiles[0].text);
