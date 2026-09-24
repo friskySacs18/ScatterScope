@@ -42,7 +42,10 @@
       meta.textContent = new Date(row.publishedAt).toLocaleTimeString() + ' · observed ' + age + 's after publication';
       const label = document.createElement('strong');
       label.textContent = row.fresh ? 'NEW SIGNAL · NO ORDER' : 'RECENT CALL · NO ORDER';
-      entry.append(link, meta, label);
+      const trade = document.createElement('a');
+      trade.href = '/account?mint=' + encodeURIComponent(row.mint);
+      trade.textContent = 'REVIEW BUY IN SCOPE ↗';
+      entry.append(link, meta, label, trade);
       list.append(entry);
     }
   }
@@ -57,12 +60,12 @@
       render();
     }
     if (!selected.length) {
-      status.textContent = 'Add a caller to set up your watchlist. The Callout feed is currently unavailable.';
+      status.textContent = 'Add a caller to watch their Pump.fun Callouts every 8 seconds while this page is open.';
       return;
     }
     busy = true;
     try {
-      const response = await fetch('/api/callouts/recent', { cache: 'no-store', signal: AbortSignal.timeout(7500) });
+      const response = await fetch('/api/callouts/recent?callers=' + encodeURIComponent(ids), { cache: 'no-store', signal: AbortSignal.timeout(7500) });
       const data = await response.json();
       if (!response.ok) throw Error(data.error || 'Callout feed unavailable');
       if (!Array.isArray(data.callouts)) throw Error('Unexpected Callout response');
@@ -82,7 +85,7 @@
       const oldest = Math.min(...data.callouts.map(x => Number(x.publishedAt) || now));
       const saturated = data.callouts.length >= 20 && oldest > now - 12000;
       status.classList.remove('monitor-error');
-      status.textContent = 'Checked ' + new Date(now).toLocaleTimeString() + ' · ' + selected.length + ' caller' + (selected.length === 1 ? '' : 's') +
+      status.textContent = 'Pump Callouts checked ' + new Date(now).toLocaleTimeString() + ' · ' + selected.length + ' caller' + (selected.length === 1 ? '' : 's') +
         ' · every 8s while open' + (saturated ? ' · feed is busy; calls could be missed' : '') + ' · live orders off';
       first = false;
       lastChecked = now;
