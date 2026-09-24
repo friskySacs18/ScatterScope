@@ -96,3 +96,23 @@ export const accountOrders = sqliteTable("account_orders", {
   signature: text("signature"),
   createdAt: integer("created_at").notNull(),
 }, table => [uniqueIndex("uidx_account_orders_signal").on(table.accountId,table.signalId,table.side)]);
+
+// Provider observations are evidence, never authorization to spend.
+export const calloutObservations = sqliteTable("callout_observations", {
+  id: text("id").primaryKey(),
+  callerWallet: text("caller_wallet").notNull(),
+  mint: text("mint").notNull(),
+  publishedAt: integer("published_at").notNull(),
+  observedAt: integer("observed_at").notNull(),
+  source: text("source").notNull(),
+  receivedAt: integer("received_at").notNull(),
+}, table => [
+  index("idx_callout_observations_received_at").on(table.receivedAt),
+  index("idx_callout_observations_caller_published").on(table.callerWallet,table.publishedAt),
+]);
+
+export const calloutIngestState = sqliteTable("callout_ingest_state", {
+  source: text("source").primaryKey(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  lastCalloutAt: integer("last_callout_at"),
+});
