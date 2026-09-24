@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "name": "Scope Pump trades pilot",
+  "chain_type": "solana",
+  "owner_id": "kzp9n6z4hxygbdqs4sf3dprc",
+  "rules": [
+    {
+      "name": "Pump bonding curve and trade setup programs",
+      "method": "signAndSendTransaction",
+      "action": "ALLOW",
+      "conditions": [{
+        "field_source": "solana_program_instruction",
+        "field": "programId",
+        "operator": "in",
+        "value": [
+          "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+          "ComputeBudget111111111111111111111111111111",
+          "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+          "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        ]
+      }]
+    },
+    {
+      "name": "Limit direct system SOL transfers to 0.01 SOL",
+      "method": "signAndSendTransaction",
+      "action": "ALLOW",
+      "conditions": [{
+        "field_source": "solana_system_program_instruction",
+        "field": "Transfer.lamports",
+        "operator": "lte",
+        "value": "10000000"
+      }]
+    }
+  ]
+}
