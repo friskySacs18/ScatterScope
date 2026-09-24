@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-09-24-r64";
+const BUILD_ID = "2026-09-24-r65";
 const chamberShader = "";
 const page = `<!doctype html>
 <html lang="en" class="booting" data-build="${BUILD_ID}">
@@ -638,9 +638,10 @@ async function checkPrivyPolicy(env){
     const response=await fetch('https://api.privy.io/v1/policies/'+id,{headers:{'Authorization':'Basic '+btoa(appId+':'+env.PRIVY_APP_SECRET),'privy-app-id':appId},signal:AbortSignal.timeout(5000)});
     if(response.ok){
       const policy=await response.json(),rules=policy.rules||[];
-      const program=rules.find(rule=>rule.action==='ALLOW'&&rule.method==='signAndSendTransaction'&&rule.conditions?.some(c=>c.field_source==='solana_program_instruction'&&c.field==='programId'&&c.operator==='in'&&Array.isArray(c.value)&&c.value.includes('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P')));
-      const transfer=rules.find(rule=>rule.action==='ALLOW'&&rule.method==='signAndSendTransaction'&&rule.conditions?.some(c=>c.field_source==='solana_system_program_instruction'&&c.field==='Transfer.lamports'&&c.operator==='lte'&&Number(c.value)<=10000000));
-      verified=policy.id===id&&policy.chain_type==='solana'&&policy.owner_id===SCOPE_SIGNER_QUORUM_ID&&Boolean(program&&transfer);
+      const allowedPrograms=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
+      const program=rules.find(rule=>rule.action==='ALLOW'&&rule.method==='signAndSendTransaction'&&rule.conditions?.length===1&&rule.conditions[0].field_source==='solana_program_instruction'&&rule.conditions[0].field==='programId'&&rule.conditions[0].operator==='in'&&Array.isArray(rule.conditions[0].value)&&rule.conditions[0].value.length===allowedPrograms.length&&allowedPrograms.every(programId=>rule.conditions[0].value.includes(programId)));
+      const transfer=rules.find(rule=>rule.action==='ALLOW'&&rule.method==='signAndSendTransaction'&&rule.conditions?.length===1&&rule.conditions[0].field_source==='solana_system_program_instruction'&&rule.conditions[0].field==='Transfer.lamports'&&rule.conditions[0].operator==='lte'&&Number.isSafeInteger(Number(rule.conditions[0].value))&&Number(rule.conditions[0].value)>=0&&Number(rule.conditions[0].value)<=10000000);
+      verified=policy.id===id&&policy.chain_type==='solana'&&policy.owner_id===SCOPE_SIGNER_QUORUM_ID&&rules.length===2&&Boolean(program&&transfer&&program!==transfer);
     }
   }catch{}
   const result={configured:true,verified};privyPolicyCheck={at:Date.now(),result};return result;
