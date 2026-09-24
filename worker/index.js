@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-09-24-r67";
+const BUILD_ID = "2026-09-24-r68";
 const chamberShader = "";
 const page = `<!doctype html>
 <html lang="en" class="booting" data-build="${BUILD_ID}">
@@ -629,10 +629,11 @@ async function verifiedPrivySubject(request,env){
     const parts=authorization.slice(7).split('.');
     if(parts.length!==3)return {error:'Invalid login token',status:401};
     const header=JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[0])));
-    if(header.alg!=='ES256'||(header.typ&&header.typ!=='JWT'))return {error:'Invalid login token',status:401};
+    if(!['ES256','EdDSA'].includes(header.alg)||(header.typ&&header.typ!=='JWT'))return {error:'Invalid login token',status:401};
     const der=Uint8Array.from(atob(pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g,'')),c=>c.charCodeAt(0));
-    const key=await crypto.subtle.importKey('spki',der,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
-    const valid=await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,decodeBase64Url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
+    const algorithm=header.alg==='EdDSA'?'Ed25519':{name:'ECDSA',namedCurve:'P-256'};
+    const key=await crypto.subtle.importKey('spki',der,algorithm,false,['verify']);
+    const valid=await crypto.subtle.verify(header.alg==='EdDSA'?'Ed25519':{name:'ECDSA',hash:'SHA-256'},key,decodeBase64Url(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1]));
     if(!valid)return {error:'Invalid login token',status:401};
     const payload=JSON.parse(new TextDecoder().decode(decodeBase64Url(parts[1]))),now=Math.floor(Date.now()/1000);
     if(payload.iss!=='privy.io'||payload.aud!==PRIVY_APP_ID||!/^did:privy:[a-zA-Z0-9_-]{8,120}$/.test(payload.sub||'')||
@@ -730,7 +731,7 @@ async function automationReadiness(env){
   const observedAt=provider==='tweetstream'?lastSeenAt:lastPumpSourceAt;
   const sourceLive=Number.isSafeInteger(observedAt)&&Date.now()-observedAt<30000;
   const [privy,policy]=await Promise.all([checkPrivyCredentials(env),checkPrivyPolicy(env)]);
-  return json({mode:'paper-observation',draftStorageConfigured:Boolean(env?.PRIVY_ACCESS_TOKEN_VERIFICATION_KEY),sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Obtain user authorization after server order controls are ready','No persistent background watcher or order execution and reconciliation','No funded canary execution']});
+  return json({mode:'paper-observation',draftStorageConfigured:Boolean(env?.PRIVY_ACCESS_TOKEN_VERIFICATION_KEY),sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,policy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:privy.signerRegistered,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:[...(!env?.PRIVY_ACCESS_TOKEN_VERIFICATION_KEY?['Privy access-token verification key missing; account draft sync unavailable']:[]),'Per-caller feed needs prospective coverage and latency measurement','Obtain user authorization after server order controls are ready','No persistent background watcher or order execution and reconciliation','No funded canary execution']});
 }
 const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
 const pageHeaders={"content-type":"text/html; charset=utf-8","cache-control":"no-store, no-cache, must-revalidate, max-age=0","cdn-cache-control":"no-store","surrogate-control":"no-store","pragma":"no-cache","expires":"0","clear-site-data":"\"cache\"","x-scatterscope-build":BUILD_ID,...secure};
