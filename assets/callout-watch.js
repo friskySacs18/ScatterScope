@@ -57,7 +57,7 @@
       render();
     }
     if (!selected.length) {
-      status.textContent = 'Add a caller to start checking Pump Callouts every 8 seconds while this page is open.';
+      status.textContent = 'Add a caller to set up your watchlist. The Callout feed is currently unavailable.';
       return;
     }
     busy = true;
@@ -88,7 +88,7 @@
       lastChecked = now;
     } catch (error) {
       status.classList.add('monitor-error');
-      status.textContent = (error.message || 'Feed unavailable') + '. No signals will be acted on. Retrying in 8 seconds.';
+      status.textContent = (error.message || 'Feed unavailable') + ' No signals or orders are being processed.';
     } finally { busy = false; }
   }
 
