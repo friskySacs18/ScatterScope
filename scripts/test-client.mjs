@@ -1,51 +1,16 @@
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
-import worker from '../worker/index.js';
-const html=await (await worker.fetch(new Request('https://test/launch-research'),{})).text();
-assert.ok(html.includes('Shadow execution tape.'));
-assert.ok(html.includes('HARD KILL SWITCH · ENGAGED'));
-assert.ok(html.includes('Real events · simulated capital'));
-assert.ok(html.includes('LITEPAPER · SIMPLE'));
-assert.ok(html.includes('WHITEPAPER · TECHNICAL'));
-assert.ok(html.includes('SOL stays behind eight gates.'));
-assert.ok(html.includes('class="scene-rack"'));
-const scripts=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-const script=scripts.at(-1)[1];
-const nodes=new Map();
-const node=()=>({textContent:'',disabled:false,value:'base',children:[],innerHTML:'',querySelector:()=>null,prepend(){},append(){},addEventListener(){},getContext(){throw Error('test fallback')}});
-const context=vm.createContext({
- document:{getElementById(id){if(!nodes.has(id))nodes.set(id,node());return nodes.get(id)},createElement:node},
- fetch:async()=>({ok:true,json:async()=>({configured:true,eligible:false,reasons:['METADATA_UNREACHABLE']})}),
- AbortSignal,Date,Set,Map,console,requestAnimationFrame:fn=>fn(0),setTimeout:fn=>fn(),clearInterval(){},setInterval(){},
-});
-vm.runInContext(script,context);
-vm.runInContext('runTournament()',context);
-assert.equal(vm.runInContext('tournamentResults.length',context),288);
-assert.equal(nodes.get('runTourney').disabled,false);
-assert.ok(vm.runInContext('tournamentResults.every(r=>Number.isFinite(r.score))',context));
-assert.equal(vm.runInContext("precheck({message:'subscribed'})[0]",context),'CONTROL_MESSAGE');
-assert.equal(vm.runInContext("precheck({mint:'11111111111111111111111111111111',name:'Its real look dev bought',symbol:'BAIT'})[0]",context),'PROMOTIONAL_BAIT');
-await vm.runInContext("ingest({mint:'11111111111111111111111111111111',name:'Example',symbol:'EX',uri:'ipfs://test'})",context);
-assert.equal(vm.runInContext('state.events[0].decision',context),'REVIEW');
-assert.equal(vm.runInContext('state.events[0].buyEligible',context),false);
-assert.equal(nodes.get('reviewCount').textContent,'1');
-assert.equal(vm.runInContext("reasonText(['UNTRUSTED_METADATA_URI'])",context),'Metadata host not approved');
-assert.equal(vm.runInContext("reasonText(['METADATA_UNREACHABLE'])",context),'Metadata could not be reached');
-console.log('PASS: 288-model runtime, optic fallback, bait/control handling, unavailable metadata Review, no buy eligibility');
-assert.ok(html.includes('Three formulas.<br>One honest verdict.'));
-assert.ok(html.includes('LOW RELATIVE RISK'));
-assert.ok(html.includes('BALANCED RISK'));
-assert.ok(html.includes('HIGH RELATIVE RISK'));
-assert.ok(html.includes('04 / LIVE CAPITAL</span><b>LOCKED'));
-assert.equal(nodes.has('strategyDeck'),false,'synthetic tournament must not overwrite the frozen-candidate command center');
-console.log('PASS: frozen-candidate command center and locked live-capital gate');
-assert.ok(nodes.get('modelTable').innerHTML.includes('<table class="strategy-table">'));
-assert.equal((nodes.get('modelTable').innerHTML.match(/<th scope="row"/g)||[]).length,12);
-let exported;
-context.Blob=Blob;context.URL={createObjectURL(blob){exported=blob;return 'blob:test'},revokeObjectURL(){}};
-context.document.createElement=()=>({click(){}});
-vm.runInContext("reject({mint:'example'},['TEST_REASON']);exportData()",context);
-const records=(await exported.text()).split('\n').map(line=>JSON.parse(line));
-assert.equal(records.length,2);
-assert.equal(records[0].decision,'REVIEW');
-console.log('PASS: 12 accessible result rows and valid multi-record JSONL export');
+import worker from '../dist/server/index.js';
+
+const homepage = await (await worker.fetch(new Request('https://test/'), {})).text();
+const archive = await (await worker.fetch(new Request('https://test/launch-research'), {})).text();
+assert.match(homepage, /caller field/i);
+assert.match(homepage, /Research archive/);
+assert.doesNotMatch(homepage, /Separate launch research/);
+assert.match(archive, /Launch research/);
+assert.match(archive, /Historical simulations are research/);
+assert.match(archive, /href="\/account"/);
+assert.doesNotMatch(archive, /Shadow execution tape|scene-rack|LITEPAPER · SIMPLE/);
+const execution = await (await worker.fetch(new Request('https://test/api/execution-status'), {})).json();
+assert.equal(execution.liveTrading, false);
+assert.equal(execution.killSwitch, 'engaged');
+console.log('Caller field, unobtrusive research archive and locked execution verified');
