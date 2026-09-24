@@ -1,0 +1,1 @@
+ALTER TABLE `callout_observations` ADD `callout_id` text;
