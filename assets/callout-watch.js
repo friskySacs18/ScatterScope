@@ -43,8 +43,8 @@
       const label = document.createElement('strong');
       label.textContent = row.fresh ? 'NEW SIGNAL · NO ORDER' : 'RECENT CALL · NO ORDER';
       const trade = document.createElement('a');
-      trade.href = '/account?mint=' + encodeURIComponent(row.mint);
-      trade.textContent = 'REVIEW BUY IN SCOPE ↗';
+      trade.href = '/account#autoRules';
+      trade.textContent = 'SET SNIPE RULES ↗';
       entry.append(link, meta, label, trade);
       list.append(entry);
     }
