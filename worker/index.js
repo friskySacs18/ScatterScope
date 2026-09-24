@@ -1,4 +1,4 @@
-const BUILD_ID = "2026-09-23-r61";
+const BUILD_ID = "2026-09-24-r62";
 const chamberShader = "";
 const page = `<!doctype html>
 <html lang="en" class="booting" data-build="${BUILD_ID}">
@@ -610,6 +610,20 @@ async function ingestCallout(request,env){
   await env.DB.prepare('INSERT INTO callout_ingest_state (source,last_seen_at,last_callout_at) VALUES (?,?,?) ON CONFLICT(source) DO UPDATE SET last_seen_at = excluded.last_seen_at, last_callout_at = excluded.last_callout_at').bind('tweetstream',now,now).run();
   return json({accepted:true,duplicate:result.meta?.changes===0,mode:'paper-observation'});
 }
+let privyCredentialCheck={at:0,result:null};
+async function checkPrivyCredentials(env){
+  if(!env?.PRIVY_APP_SECRET)return {configured:false,authenticated:false};
+  if(Date.now()-privyCredentialCheck.at<60000&&privyCredentialCheck.result)return privyCredentialCheck.result;
+  let authenticated=false,reachable=false;
+  try{
+    const appId='cmuejmq9g00eg0cla13182nah';
+    const response=await fetch('https://api.privy.io/v1/wallets?limit=1',{headers:{'Authorization':'Basic '+btoa(appId+':'+env.PRIVY_APP_SECRET),'privy-app-id':appId},signal:AbortSignal.timeout(5000)});
+    reachable=true;authenticated=response.ok;
+  }catch{}
+  const result={configured:true,authenticated,reachable};
+  privyCredentialCheck={at:Date.now(),result};
+  return result;
+}
 async function automationReadiness(env){
   let lastSeenAt=null;
   if(env?.CALLOUT_INGEST_SECRET&&env.DB?.prepare){
@@ -618,7 +632,8 @@ async function automationReadiness(env){
   const provider=env?.CALLOUT_INGEST_SECRET?'tweetstream':'pump-per-caller';
   const observedAt=provider==='tweetstream'?lastSeenAt:lastPumpSourceAt;
   const sourceLive=Number.isSafeInteger(observedAt)&&Date.now()-observedAt<30000;
-  return json({mode:'paper-observation',sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','No restricted delegated signer or server-side subscriptions','No persistent order execution and reconciliation','No funded canary execution']});
+  const privy=await checkPrivyCredentials(env);
+  return json({mode:'paper-observation',sourceConfigured:true,sourceLive,lastSeenAt:observedAt,source:provider,privy,signingKeyStored:Boolean(env?.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM),signerRegistered:false,signerConfigured:false,orderExecutionEnabled:false,spendCapSol:0,blocking:['Per-caller feed needs prospective coverage and latency measurement','Register signer with a restricted Privy policy and obtain user authorization','No persistent server-side subscriptions or order execution and reconciliation','No funded canary execution']});
 }
 const secure={"content-security-policy":"default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'","referrer-policy":"no-referrer","x-content-type-options":"nosniff","x-frame-options":"DENY","permissions-policy":"camera=(), microphone=(), geolocation=()"};
 const pageHeaders={"content-type":"text/html; charset=utf-8","cache-control":"no-store, no-cache, must-revalidate, max-age=0","cdn-cache-control":"no-store","surrogate-control":"no-store","pragma":"no-cache","expires":"0","clear-site-data":"\"cache\"","x-scatterscope-build":BUILD_ID,...secure};
