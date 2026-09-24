@@ -117,3 +117,13 @@ export const calloutIngestState = sqliteTable("callout_ingest_state", {
   lastSeenAt: integer("last_seen_at").notNull(),
   lastCalloutAt: integer("last_callout_at"),
 });
+
+// User drafts are inert. An order worker must separately verify wallet ownership,
+// signer consent, budgets, signals and an explicit live execution gate.
+export const automationDrafts = sqliteTable("automation_drafts", {
+  authSubject: text("auth_subject").primaryKey(),
+  walletAddress: text("wallet_address").notNull(),
+  callersJson: text("callers_json").notNull(),
+  rulesJson: text("rules_json").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
