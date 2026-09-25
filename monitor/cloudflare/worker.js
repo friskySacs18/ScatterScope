@@ -79,6 +79,8 @@ export class ScopeMonitor {
         }
       }catch{error='Monitor request failed'}
       const rateLimitCount=httpStatus===429?(this.health.rateLimitCount||0)+1:ok?0:(this.health.rateLimitCount||0);
+      if(!ok)console.warn('Scope monitor unhealthy',JSON.stringify({httpStatus,retryAfterMs:retryAfterMs||null,reason:error}));
+      else if(this.health.lastCheckOk===false)console.info('Scope monitor recovered',JSON.stringify({httpStatus,callerCount}));
       this.health={lastCheckedAt:at,lastSuccessAt:ok?Date.now():this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null};
       await this.storage.put('health',this.health);
       if(this.health.retryAt&&this.enabled)await this.storage.setAlarm(this.health.retryAt);
