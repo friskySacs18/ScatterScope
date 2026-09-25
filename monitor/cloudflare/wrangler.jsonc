@@ -1,0 +1,15 @@
+{
+  "name": "scope-background-monitor",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": true,
+  "vars": {
+    "SCOPE_MONITOR_URL": "https://scopetrade.live/api/automation/monitor-tick"
+  },
+  "durable_objects": {
+    "bindings": [{"name": "SCOPE_MONITOR", "class_name": "ScopeMonitor"}]
+  },
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["ScopeMonitor"]}],
+  "triggers": {"crons": ["* * * * *"]},
+  "observability": {"enabled": true}
+}
