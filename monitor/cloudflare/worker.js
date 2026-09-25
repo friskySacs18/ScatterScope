@@ -21,6 +21,14 @@ export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
     if(path==='/version'&&request.method==='GET')return json({service:'scope-background-monitor',build:BUILD,intervalMs:INTERVAL,executionEnabled:false});
+    if(path==='/status'&&request.method==='GET'){
+      const response=await singleton(env).fetch(new Request('https://internal/health'));
+      if(!response.ok)return json({error:'Monitor status unavailable'},503);
+      const health=await response.json();
+      return json({service:'scope-background-monitor',build:BUILD,enabled:health.enabled===true,healthy:health.healthy===true,
+        intervalMs:INTERVAL,lastCheckedAt:health.lastCheckedAt||null,lastSuccessAt:health.lastSuccessAt||null,
+        providerStatus:health.httpStatus||null,retryAt:health.retryAt||null,executionEnabled:false});
+    }
     if(!['/start','/stop','/health'].includes(path))return json({error:'Not found'},404);
     if(!authorized(request,env))return json({error:'Monitor administrator authentication required'},401);
     if(request.method!==(path==='/health'?'GET':'POST'))return json({error:'Method not allowed'},405);
