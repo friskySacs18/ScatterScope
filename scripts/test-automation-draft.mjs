@@ -59,6 +59,14 @@ assert.equal((await call('PUT',alice,{...body,rules:{...body.rules,marketCapBand
 assert.equal((await call('GET',alice)).body.draft.rules.marketCapBands[2].spendSol,10);
 assert.equal((await call('PUT',alice,{...body,callers:[body.callers[0],body.callers[0]]})).status,400);
 assert.equal((await call('PUT',alice,body)).status,200);
+const single={...body,rules:{marketCapBands:[{belowUsd:null,spendSol:.125}],profit1Percent:50,profit1Sell:100,profit2Percent:null,profit2Sell:null,stopPercent:null}};
+assert.equal((await call('PUT',alice,single)).status,200);
+assert.equal((await call('GET',alice)).body.draft.rules.profit1Sell,100);
+assert.equal((await call('GET',alice)).body.draft.rules.profit2Percent,null);
+assert.equal((await call('PUT',alice,{...single,rules:{...single.rules,profit2Percent:80,profit2Sell:10}})).status,400);
+assert.equal((await call('PUT',alice,{...single,rules:{...single.rules,profit1Percent:null,profit1Sell:null,stopPercent:20}})).status,200);
+assert.equal((await call('PUT',alice,{...single,rules:{...single.rules,profit1Percent:null,profit1Sell:null}})).status,400);
+assert.equal((await call('PUT',alice,body)).status,200);
 assert.equal((await call('GET',bob)).body.draft,null);
 assert.deepEqual((await call('GET',alice)).body.draft.rules.marketCapBands,tiers);
 assert.equal((await call('DELETE',bob)).status,200);
