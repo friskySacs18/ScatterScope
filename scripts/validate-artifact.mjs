@@ -39,7 +39,7 @@ assert.ok(!html.includes('__OPTICAL_ASSET__'), 'No unresolved image assets');
 const archive = await workerModule.default.fetch(new Request('https://artifact.local/launch-research'), {}, {});
 assert.equal(archive.status, 200);
 const archiveHtml = await archive.text();
-assert.ok(archiveHtml.includes('Launch research'), 'Archive must render');
+assert.ok(archiveHtml.includes('OPEN HISTORICAL STUDIES'), 'Archive must render');
 assert.ok(!archiveHtml.includes('id="chamberCanvas"'), 'Former research dashboard must not appear');
 const account = await workerModule.default.fetch(new Request('https://artifact.local/account'), {}, {});
 assert.equal(account.status, 200);
