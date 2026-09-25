@@ -1,5 +1,6 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
 const INTERVAL=10000;
+const BUILD='ten-second-feed-v2';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -19,6 +20,7 @@ function singleton(env){return env.SCOPE_MONITOR.get(env.SCOPE_MONITOR.idFromNam
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
+    if(path==='/version'&&request.method==='GET')return json({service:'scope-background-monitor',build:BUILD,intervalMs:INTERVAL,executionEnabled:false});
     if(!['/start','/stop','/health'].includes(path))return json({error:'Not found'},404);
     if(!authorized(request,env))return json({error:'Monitor administrator authentication required'},401);
     if(request.method!==(path==='/health'?'GET':'POST'))return json({error:'Method not allowed'},405);
