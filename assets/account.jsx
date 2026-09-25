@@ -15,12 +15,14 @@ function AutoTradeSetup({address}){
   const [signerSetup,setSignerSetup]=useState(null),[granting,setGranting]=useState(false);
   useEffect(()=>{let active=true;fetch('/api/automation/signer-setup',{cache:'no-store'}).then(response=>response.json()).then(data=>{if(active)setSignerSetup(data)}).catch(()=>{if(active)setSignerSetup({ready:false,reason:'Signer setup is unavailable'})});return()=>{active=false}},[address]);
   const [saved,setSaved]=useState(()=>{try{return JSON.parse(localStorage.getItem('scope-trading-setup-v2')||'null')||{}}catch{return{}}});
-  const initialBands=saved.marketCapBands||[{belowUsd:'',spendSol:''},{belowUsd:'',spendSol:''},{belowUsd:null,spendSol:''}];
-  const [spend,setSpend]=useState(String(initialBands[0].spendSol));
-  const [middleSpend,setMiddleSpend]=useState(String(initialBands[1].spendSol));
-  const [largeSpend,setLargeSpend]=useState(String(initialBands[2].spendSol));
-  const [lowerCap,setLowerCap]=useState(String(initialBands[0].belowUsd));
-  const [upperCap,setUpperCap]=useState(String(initialBands[1].belowUsd));
+  const initialBands=saved.marketCapBands||[];
+  const [tiered,setTiered]=useState(initialBands.length===3);
+  const [spend,setSpend]=useState(String(initialBands.length===1?initialBands[0].spendSol:''));
+  const [lowSpend,setLowSpend]=useState(String(initialBands.length===3?initialBands[0].spendSol:''));
+  const [middleSpend,setMiddleSpend]=useState(String(initialBands.length===3?initialBands[1].spendSol:''));
+  const [largeSpend,setLargeSpend]=useState(String(initialBands.length===3?initialBands[2].spendSol:''));
+  const [lowerCap,setLowerCap]=useState(String(initialBands.length===3?initialBands[0].belowUsd:''));
+  const [upperCap,setUpperCap]=useState(String(initialBands.length===3?initialBands[1].belowUsd:''));
   const [first,setFirst]=useState(String(saved.profit1Percent??''));
   const [firstSell,setFirstSell]=useState(String(saved.profit1Sell??''));
   const [second,setSecond]=useState(String(saved.profit2Percent??''));
@@ -30,28 +32,40 @@ function AutoTradeSetup({address}){
   useEffect(()=>{if(!address)return;let cancelled=false;(async()=>{
     try{const token=await getAccessToken();if(!token)return;const response=await fetch('/api/automation/draft',{headers:{Authorization:'Bearer '+token},cache:'no-store'});if(!response.ok)return;const data=await response.json();const draft=data.draft;
       if(cancelled||!draft||draft.wallet!==address)return;
-      const r=draft.rules,b=r.marketCapBands||[{belowUsd:'',spendSol:''},{belowUsd:'',spendSol:''},{belowUsd:null,spendSol:''}];
-      setSpend(String(b[0].spendSol));setMiddleSpend(String(b[1].spendSol));setLargeSpend(String(b[2].spendSol));setLowerCap(String(b[0].belowUsd));setUpperCap(String(b[1].belowUsd));setFirst(String(r.profit1Percent));setFirstSell(String(r.profit1Sell));setSecond(String(r.profit2Percent));setSecondSell(String(r.profit2Sell));setStop(String(r.stopPercent));
+      const r=draft.rules,b=r.marketCapBands||[];
+      setTiered(b.length===3);setSpend(String(b.length===1?b[0].spendSol:''));
+      if(b.length===3){setLowSpend(String(b[0].spendSol));setMiddleSpend(String(b[1].spendSol));setLargeSpend(String(b[2].spendSol));setLowerCap(String(b[0].belowUsd));setUpperCap(String(b[1].belowUsd))}
+      setFirst(String(r.profit1Percent??''));setFirstSell(String(r.profit1Sell??''));setSecond(String(r.profit2Percent??''));setSecondSell(String(r.profit2Sell??''));setStop(String(r.stopPercent??''));
       if(Array.isArray(draft.callers)&&!localStorage.getItem('scope-caller-watchlist-v1'))localStorage.setItem('scope-caller-watchlist-v1',JSON.stringify(draft.callers));
-      setMessage(r.marketCapBands?'Your saved account draft was restored. Automatic orders are still off.':'Your older draft needs market-cap ranges and SOL amounts. Automatic orders are still off.');
-    }catch{/* Device draft stays available when the account API is unavailable. */}
+      setMessage('Your saved rules were restored. Automatic orders are still off.');
+    }catch{/* Device draft stays available when account sync is unavailable. */}
   })();return()=>{cancelled=true}},[address,getAccessToken]);
   async function save(event){
     event.preventDefault();
-    const n=[spend,first,firstSell,second,secondSell,stop].map(Number);
-    const caps=[Number(lowerCap),Number(upperCap)],amounts=[n[0],Number(middleSpend),Number(largeSpend)];
-    if(!caps.every(Number.isSafeInteger)||caps[0]<1||caps[1]<=caps[0]||amounts.some(x=>!Number.isFinite(x)||x<.001||!Number.isSafeInteger(Math.round(x*1e9)))||!Number.isInteger(n[1])||n[1]<1||n[1]>10000||!Number.isInteger(n[2])||n[2]<1||n[2]>100||!Number.isInteger(n[3])||n[3]<=n[1]||n[3]>10000||!Number.isInteger(n[4])||n[4]<1||n[4]>100||n[2]+n[4]>100||!Number.isInteger(n[5])||n[5]<1||n[5]>99){setMessage('Check ascending USD market-cap limits, SOL amounts, profit targets, and stop loss.');return}
-    const marketCapBands=[{belowUsd:caps[0],spendSol:amounts[0]},{belowUsd:caps[1],spendSol:amounts[1]},{belowUsd:null,spendSol:amounts[2]}];
-    const state={fundingMode:'scope',spend:amounts[0],marketCapBands,useProfit:true,profit1Percent:n[1],profit1Sell:n[2],profit2Percent:n[3],profit2Sell:n[4],useStop:true,stopPercent:n[5]};
+    const sol=value=>{if(!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(value))return null;const n=Number(value);return Number.isFinite(n)&&n>=.001&&Number.isSafeInteger(Math.round(n*1e9))?n:null};
+    let marketCapBands;
+    if(tiered){
+      const low=Number(lowerCap),high=Number(upperCap),amounts=[lowSpend,middleSpend,largeSpend].map(sol);
+      if(!Number.isSafeInteger(low)||low<1||!Number.isSafeInteger(high)||high<=low||amounts.some(x=>x===null)){setMessage('Enter two increasing USD market-cap limits and three SOL amounts.');return}
+      marketCapBands=[{belowUsd:low,spendSol:amounts[0]},{belowUsd:high,spendSol:amounts[1]},{belowUsd:null,spendSol:amounts[2]}];
+    }else{const amount=sol(spend);if(amount===null){setMessage('Enter how much SOL to spend per call (at least 0.001).');return}marketCapBands=[{belowUsd:null,spendSol:amount}]}
+    const parsed=value=>value.trim()===''?null:Number(value);
+    const p1=parsed(first),s1=parsed(firstSell),p2=parsed(second),s2=parsed(secondSell),sl=parsed(stop);
+    const integer=(x,min,max)=>x===null||Number.isInteger(x)&&x>=min&&x<=max;
+    if(!integer(p1,1,10000)||!integer(s1,1,100)||!integer(p2,1,10000)||!integer(s2,1,100)||!integer(sl,1,99)||
+      (p1===null)!==(s1===null)||(p2===null)!==(s2===null)||(p2!==null&&(p1===null||p2<=p1||s1+s2>100))||(p1===null&&sl===null)){
+      setMessage('Set a profit target and how much to sell, or a stop loss. A second target must be higher and cannot sell more than the remaining position.');return;
+    }
+    const state={fundingMode:'scope',marketCapBands,profit1Percent:p1,profit1Sell:s1,profit2Percent:p2,profit2Sell:s2,stopPercent:sl};
     try{localStorage.setItem('scope-trading-setup-v2',JSON.stringify(state));setSaved(state)}catch{setMessage('Device storage unavailable; rules were not saved.');return}
-    setMessage('Draft saved on this device. Saving to your account…');
+    setMessage('Saved on this device. Saving to your account…');
     try{
-      const token=await getAccessToken();if(!token||!address)throw Error('Sign in and create your Scope wallet to sync this draft.');
+      const token=await getAccessToken();if(!token||!address)throw Error('Sign in and create your Scope wallet to sync these rules.');
       const raw=JSON.parse(localStorage.getItem('scope-caller-watchlist-v1')||'[]');
       const callers=(Array.isArray(raw)?raw:[]).map(x=>typeof x==='string'?{wallet:x,username:''}:{wallet:x.wallet,username:x.username||''});
-      const response=await fetch('/api/automation/draft',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({wallet:address,callers,rules:{marketCapBands,profit1Percent:n[1],profit1Sell:n[2],profit2Percent:n[3],profit2Sell:n[4],stopPercent:n[5]}})});
+      const response=await fetch('/api/automation/draft',{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({wallet:address,callers,rules:state})});
       const result=await response.json();if(!response.ok)throw Error(result.error||'Account draft unavailable');
-      setMessage('Callers and rules saved to your account as a draft. Automatic orders remain off.');
+      setMessage('Rules saved to your account. Automatic orders remain off.');
     }catch(error){setMessage('Saved on this device only. '+(error.message||'Account sync unavailable')+' Automatic orders remain off.')}
   }
   async function authorize(){
@@ -59,7 +73,19 @@ function AutoTradeSetup({address}){
     setGranting(true);setMessage('Review the wallet permission request in Privy.');
     try{await addSigners({address,signers:[{signerId:signerSetup.quorumId,policyIds:[signerSetup.policyId]}]});setMessage('Signer authorized under the restricted policy. Automatic orders remain off until the execution service is enabled.')}catch(error){setMessage(error?.message||'Signer authorization was not completed.')}finally{setGranting(false)}
   }
-  return <section className="panel wide" id="autoRules"><span className="tag">04 / AUTOMATIC TRADE RULES</span><h2>Set your snipe rules</h2><p>Add callers on the <a href="/#callerDesk">Caller Field</a>, then choose SOL amounts by current USD market cap. The first call for a coin is the only one eligible; repeat calls and coins your account already bought are skipped. These settings remain a draft until unattended execution is enabled.</p><details><summary className="action">EDIT RULES</summary><form onSubmit={save} className="trade-grid"><label className="field"><span>LOW MARKET CAP / BELOW USD $</span><input type="number" min="1" step="1" value={lowerCap} onChange={e=>setLowerCap(e.target.value)} required/></label><label className="field"><span>BUY BELOW LOWER LIMIT / SOL</span><input type="number" min="0.001" step="0.001" value={spend} onChange={e=>setSpend(e.target.value)} required/></label><label className="field"><span>HIGH MARKET CAP / FROM USD $</span><input type="number" min="2" step="1" value={upperCap} onChange={e=>setUpperCap(e.target.value)} required/></label><label className="field"><span>BUY BETWEEN LIMITS / SOL</span><input type="number" min="0.001" step="0.001" value={middleSpend} onChange={e=>setMiddleSpend(e.target.value)} required/></label><label className="field"><span>BUY AT OR ABOVE HIGH LIMIT / SOL</span><input type="number" min="0.001" step="0.001" value={largeSpend} onChange={e=>setLargeSpend(e.target.value)} required/></label><label className="field"><span>FIRST PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={first} onChange={e=>setFirst(e.target.value)} required/></label><label className="field"><span>SELL AT FIRST / % OF POSITION</span><input type="number" min="1" max="100" value={firstSell} onChange={e=>setFirstSell(e.target.value)} required/></label><label className="field"><span>SECOND PROFIT / % ABOVE ENTRY</span><input type="number" min="1" max="10000" value={second} onChange={e=>setSecond(e.target.value)} required/></label><label className="field"><span>SELL AT SECOND / % OF POSITION</span><input type="number" min="1" max="100" value={secondSell} onChange={e=>setSecondSell(e.target.value)} required/></label><label className="field"><span>STOP LOSS / % BELOW ENTRY</span><input type="number" min="1" max="99" value={stop} onChange={e=>setStop(e.target.value)} required/></label><button className="action primary" type="submit">SAVE RULES</button></form></details><div className="note"><strong>Automatic trade permission</strong><p>Your Scope wallet can authorize a server signer under a restricted Privy policy. Privy will ask you to review this separately. The signer policy permits direct transfers up to 0.01 SOL; the normal withdrawal form asks for separate approval.</p><button type="button" className="action" disabled={!signerSetup?.ready||granting||!address} onClick={authorize}>AUTHORIZE IN PRIVY</button><p>{signerSetup?.reason||(!signerSetup?.ready?'Checking signer and policy…':'Review the policy before you authorize.')}</p></div><p className="status" role="status">{message||'Automatic spending is locked. Your saved rules do not place orders yet.'}</p></section>;
+  return <section className="panel wide" id="autoRules"><span className="tag">04 / YOUR SNIPE RULES</span><h2>Choose your buy and exit.</h2><p>These rules are saved for your Scope wallet. They do not place orders while automatic trading is off.</p><form onSubmit={save} className="rule-form">
+    <div className="rule-section"><div className="rule-heading"><span className="rule-number">01</span><div><h3>How much should each call buy?</h3><p>Choose one SOL amount for every call, or set amounts by the coin’s market cap.</p></div></div>
+      <div className="mode-picker"><label><input type="radio" name="spendMode" checked={!tiered} onChange={()=>setTiered(false)}/> Same amount every time</label><label><input type="radio" name="spendMode" checked={tiered} onChange={()=>setTiered(true)}/> Change amount by market cap</label></div>
+      {!tiered?<label className="field"><span>SOL TO SPEND PER CALL</span><input type="number" min="0.001" step="0.000000001" inputMode="decimal" value={spend} onChange={e=>setSpend(e.target.value)} placeholder="Your amount" required/></label>:
+      <div className="tier-grid"><label className="field"><span>BELOW USD MARKET CAP</span><input type="number" min="1" step="1" inputMode="numeric" value={lowerCap} onChange={e=>setLowerCap(e.target.value)} placeholder="First cutoff" required/></label><label className="field"><span>BUY / SOL</span><input type="number" min="0.001" step="0.000000001" inputMode="decimal" value={lowSpend} onChange={e=>setLowSpend(e.target.value)} placeholder="Your amount" required/></label><label className="field"><span>BELOW USD MARKET CAP</span><input type="number" min="2" step="1" inputMode="numeric" value={upperCap} onChange={e=>setUpperCap(e.target.value)} placeholder="Second cutoff" required/></label><label className="field"><span>BUY / SOL</span><input type="number" min="0.001" step="0.000000001" inputMode="decimal" value={middleSpend} onChange={e=>setMiddleSpend(e.target.value)} placeholder="Your amount" required/></label><div className="tier-label">AT OR ABOVE SECOND CUTOFF</div><label className="field"><span>BUY / SOL</span><input type="number" min="0.001" step="0.000000001" inputMode="decimal" value={largeSpend} onChange={e=>setLargeSpend(e.target.value)} placeholder="Your amount" required/></label></div>}
+    </div>
+    <div className="rule-section"><div className="rule-heading"><span className="rule-number">02</span><div><h3>When should Scope sell?</h3><p>Set a profit target, a stop loss, or both. Leave unused exits empty.</p></div></div>
+      <div className="tier-grid"><label className="field"><span>FIRST PROFIT / % ABOVE BUY</span><input type="number" min="1" max="10000" step="1" inputMode="numeric" value={first} onChange={e=>setFirst(e.target.value)} placeholder="Optional"/></label><label className="field"><span>SELL / % OF POSITION</span><input type="number" min="1" max="100" step="1" inputMode="numeric" value={firstSell} onChange={e=>{setFirstSell(e.target.value);if(e.target.value==='100'){setSecond('');setSecondSell('')}}} placeholder="Up to 100"/></label></div>
+      <details className="extra-exits" open={second!==''||secondSell!==''?true:undefined}><summary>ADD A SECOND PROFIT TARGET <span>OPTIONAL</span></summary><div className="tier-grid"><label className="field"><span>SECOND PROFIT / % ABOVE BUY</span><input type="number" min="1" max="10000" step="1" inputMode="numeric" value={second} onChange={e=>setSecond(e.target.value)} disabled={firstSell==='100'} placeholder="Optional"/></label><label className="field"><span>SELL / % OF POSITION</span><input type="number" min="1" max="100" step="1" inputMode="numeric" value={secondSell} onChange={e=>setSecondSell(e.target.value)} disabled={firstSell==='100'} placeholder="Optional"/></label></div>{firstSell==='100'&&<p>Selling 100% at the first target leaves nothing for a second.</p>}</details>
+      <label className="field"><span>STOP LOSS / % BELOW BUY</span><input type="number" min="1" max="99" step="1" inputMode="numeric" value={stop} onChange={e=>setStop(e.target.value)} placeholder="Optional"/></label>
+    </div>
+    <div className="rule-submit"><p>Only a caller’s first verified call for a coin is eligible. A coin already bought by your account is skipped.</p><button className="action primary" type="submit">SAVE MY RULES</button></div>
+  </form><details className="note"><summary>Automatic trade permission</summary><p>A server signer needs separate Privy approval under a restricted policy. Automatic trading remains off until order execution is verified.</p><button type="button" className="action" disabled={!signerSetup?.ready||granting||!address} onClick={authorize}>AUTHORIZE IN PRIVY</button><p>{signerSetup?.reason||(!signerSetup?.ready?'Checking signer and policy…':'Review the policy before you authorize.')}</p></details><p className="status" role="status">{message||'Your settings are a draft. Automatic spending is locked.'}</p></section>;
 }
 
 function TradingStatus(){
