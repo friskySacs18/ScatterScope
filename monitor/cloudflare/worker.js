@@ -1,5 +1,5 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
-const INTERVAL=6000;
+const INTERVAL=8000;
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
