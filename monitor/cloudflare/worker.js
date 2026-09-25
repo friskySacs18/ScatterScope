@@ -1,6 +1,6 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
 const INTERVAL=10000;
-const BUILD='ten-second-feed-v2';
+const BUILD='ten-second-feed-metrics-v3';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -27,7 +27,8 @@ export default {
       const health=await response.json();
       return json({service:'scope-background-monitor',build:BUILD,enabled:health.enabled===true,healthy:health.healthy===true,
         intervalMs:INTERVAL,lastCheckedAt:health.lastCheckedAt||null,lastSuccessAt:health.lastSuccessAt||null,
-        providerStatus:health.httpStatus||null,retryAt:health.retryAt||null,executionEnabled:false});
+        providerStatus:health.httpStatus||null,retryAt:health.retryAt||null,
+        checksSinceUpgrade:health.checksSinceUpgrade||{successful:0,rateLimited:0,otherFailed:0,maxSuccessfulGapMs:0},executionEnabled:false});
     }
     if(!['/start','/stop','/health'].includes(path))return json({error:'Not found'},404);
     if(!authorized(request,env))return json({error:'Monitor administrator authentication required'},401);
@@ -89,9 +90,14 @@ export class ScopeMonitor {
         }
       }catch{error='Monitor request failed'}
       const rateLimitCount=httpStatus===429?(this.health.rateLimitCount||0)+1:ok?0:(this.health.rateLimitCount||0);
+      const prior=this.health.checksSinceUpgrade||{successful:0,rateLimited:0,otherFailed:0,maxSuccessfulGapMs:0};
+      const completedAt=Date.now();
+      const checksSinceUpgrade={successful:prior.successful+(ok?1:0),rateLimited:prior.rateLimited+(httpStatus===429?1:0),
+        otherFailed:prior.otherFailed+(!ok&&httpStatus!==429?1:0),
+        maxSuccessfulGapMs:ok&&prior.successful>0&&this.health.lastSuccessAt?Math.max(prior.maxSuccessfulGapMs,completedAt-this.health.lastSuccessAt):prior.maxSuccessfulGapMs};
       if(!ok)console.warn('Scope monitor unhealthy',JSON.stringify({httpStatus,retryAfterMs:retryAfterMs||null,reason:error}));
       else if(this.health.lastCheckOk===false)console.info('Scope monitor recovered',JSON.stringify({httpStatus,callerCount}));
-      this.health={lastCheckedAt:at,lastSuccessAt:ok?Date.now():this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null};
+      this.health={lastCheckedAt:at,lastSuccessAt:ok?completedAt:this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null,checksSinceUpgrade};
       await this.storage.put('health',this.health);
       if(this.health.retryAt&&this.enabled)await this.storage.setAlarm(this.health.retryAt);
     }finally{this.busy=false;}
