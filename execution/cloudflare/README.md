@@ -1,0 +1,17 @@
+# Scope order execution: Cloudflare migration
+
+**Release state: locked.** `order-controls.js` and `order-journal.js` are tested building blocks, not a deployed executor. They contain no route that signs or broadcasts a transaction. The existing `scope-background-monitor` must keep its monitor-only secrets and must never receive wallet authority.
+
+## Production topology
+
+1. Host the full account website and state on a separate Cloudflare Worker and Cloudflare-owned D1 database. ChatGPT Sites is not the production financial-transaction host. Preserve Privy auth subjects and wallet IDs when migrating the existing account data; verify each account's readback and do not merge an email identity with a Phantom identity by wallet-name guess.
+2. Deploy an independently named order Worker. Use a service binding to a monitor/observation service, plus a separate account database or Durable Object per account. Never accept a browser's `ownerVerified`, `consentVerified`, quote, balance, callout, instruction or simulation booleans as evidence. The service fetches and verifies all of these itself.
+3. Require explicit account-specific delegated wallet consent and a revocation path. Keep the signing authorization key in the order Worker's secrets only; never put it in the public Site or monitor. Confirm that the live Privy wallet policy allows precisely the intended sign method, program and value limits.
+4. Verify a fresh Pump Callout from an authorized, capacity-supported feed. Reject missing history, an old feed, duplicate mint, a stale USD market-cap quote, price/slippage outside the saved rule, or insufficient SOL for trade, rent and fees.
+5. Build current `buy_v2` / `sell_v2` transactions for the correct SOL-paired mint and token program. Validate every account, PDA, instruction, signer, mint, SOL maximum or minimum output, fees, recent blockhash and transaction bytes independently of the builder; simulate through a production RPC. The older structural buy inspector in the Site is not sufficient.
+6. Reserve a single buy and the daily budget atomically in the account's Durable Object. `beginSigning` persists uncertainty before a signing request; a timeout cannot cause another signing attempt for that signal or mint. Keep the exact signed bytes and signature, reconcile with finalized chain evidence, and allow a sell only against a proven settled token balance. Do not automatically release an uncertain lock.
+7. Test and alert on feed 429/staleness, RPC disagreement, provider timeout, transaction expiration, duplicate webhook/alarm, concurrent accounts, out-of-budget attempts, kill-switch toggles and signer revocation. Stage with synthetic accounts, then request a specifically authorized small funded buy and sell canary. The user has not authorized an arbitrary transaction.
+
+Cloudflare needs a *second* Worker and database to host execution. The current GitHub-connected background monitor remains separate. No key, DB ID or deployment setting should be copied from the monitor for wallet signing. Sources: https://docs.privy.io/api-reference/wallets/solana/sign-transaction , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/BUY.md , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/SELL.md , https://developers.cloudflare.com/durable-objects/api/alarms/ .
+
+Local checks: `node scripts/test-cloudflare-order-controls.mjs` and `node scripts/test-cloudflare-order-journal.mjs`.
