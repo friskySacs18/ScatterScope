@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import worker from '../worker/index.js';
 
 const crypto = webcrypto;
@@ -13,12 +14,15 @@ async function token(sub,overrides={}) {
   const sig=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},keys.privateKey,new TextEncoder().encode(data));
   return data+'.'+Buffer.from(sig).toString('base64url');
 }
-const rows=new Map();
-const db={prepare(sql){return {bind(...values){return {
-  async first(){return rows.get(values[0])||null},
-  async run(){if(sql.startsWith('DELETE'))rows.delete(values[0]);else if(sql.startsWith('INSERT'))rows.set(values[0],{wallet:values[1],callers:values[2],rules:values[3],updatedAt:values[4]});return {meta:{changes:1}}}
+const sqlite=new DatabaseSync(':memory:');
+sqlite.exec(`CREATE TABLE automation_drafts(auth_subject TEXT PRIMARY KEY,wallet_address TEXT,callers_json TEXT,rules_json TEXT,updated_at INTEGER);
+CREATE TABLE trading_users(id TEXT PRIMARY KEY,auth_subject TEXT UNIQUE,created_at INTEGER);
+CREATE TABLE trading_accounts(id TEXT PRIMARY KEY,user_id TEXT UNIQUE,provider_wallet_id TEXT UNIQUE,deposit_address TEXT UNIQUE,status TEXT,created_at INTEGER);`);
+const db={prepare(sql){return {bind(...args){return {
+  async first(){return sqlite.prepare(sql).get(...args)||null},
+  async run(){return sqlite.prepare(sql).run(...args)}
 }}}}};
-const env={DB:db,PRIVY_ACCESS_TOKEN_VERIFICATION_KEY:pem};
+const env={DB:db,PRIVY_ACCESS_TOKEN_VERIFICATION_KEY:pem,PRIVY_APP_SECRET:'test-app-secret'};
 const alice=await token('did:privy:alice_123456'),bob=await token('did:privy:bob_123456');
 const tiers=[{belowUsd:100000,spendSol:1},{belowUsd:1000000,spendSol:3},{belowUsd:null,spendSol:10}];
 const body={wallet:'11111111111111111111111111111111',callers:[{wallet:'11111111111111111111111111111111',username:'sample'}],rules:{marketCapBands:tiers,profit1Percent:50,profit1Sell:50,profit2Percent:100,profit2Sell:50,stopPercent:25}};
@@ -28,18 +32,22 @@ assert.equal((await call('GET',null)).status,401);
 assert.equal((await call('PUT',alice,body,{DB:db})).status,503);
 const originalFetch=globalThis.fetch;
 let verificationRequests=0;
-try{
   globalThis.fetch=async (url,options)=>{
-    assert.equal(url,'https://auth.privy.io/api/v1/apps/cmuejmq9g00eg0cla13182nah');
     assert.equal(options.headers['privy-app-id'],'cmuejmq9g00eg0cla13182nah');
-    verificationRequests++;
-    return new Response(JSON.stringify({verification_key:pem}),{status:200});
+    if(url==='https://auth.privy.io/api/v1/apps/cmuejmq9g00eg0cla13182nah'){
+      verificationRequests++;return new Response(JSON.stringify({verification_key:pem}),{status:200});
+    }
+    if(String(url).startsWith('https://api.privy.io/v1/users/')){
+      const subject=decodeURIComponent(String(url).split('/').pop());
+      return new Response(JSON.stringify({id:subject,linked_accounts:[{type:'wallet',address:body.wallet}]}),{status:200});
+    }
+    if(url==='https://api.privy.io/v1/wallets/address')return new Response(JSON.stringify({id:'id2tptkqrxd39qo9j423etij',address:body.wallet,chain_type:'solana',entity:{type:'user'}}),{status:200});
+    throw Error('Unexpected Privy endpoint '+url);
   };
   const remoteEnv={DB:db,PRIVY_APP_SECRET:'test-app-secret'};
   assert.equal((await call('PUT',alice,body,remoteEnv)).status,200);
   assert.equal((await call('GET',alice,undefined,remoteEnv)).status,200);
   assert.equal(verificationRequests,1);
-}finally{globalThis.fetch=originalFetch}
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{aud:'wrong'}),body)).status,401);
 assert.equal((await call('PUT',await token('did:privy:alice_123456',{exp:1}),body)).status,401);
 assert.equal((await call('PUT',alice.slice(0,-3)+'abc',body)).status,401);
@@ -63,6 +71,9 @@ const edEnv={...env,PRIVY_ACCESS_TOKEN_VERIFICATION_KEY:edPem};
 const now=Math.floor(Date.now()/1000);
 const edData=encode({alg:'EdDSA',typ:'JWT'})+'.'+encode({sub:'did:privy:eduser_123456',iss:'privy.io',aud:'cmuejmq9g00eg0cla13182nah',iat:now,exp:now+3600});
 const edSignature=Buffer.from(await crypto.subtle.sign('Ed25519',edKeys.privateKey,new TextEncoder().encode(edData))).toString('base64url');
-assert.equal((await call('PUT',edData+'.'+edSignature,body,edEnv)).status,200);
+assert.equal((await call('GET',edData+'.'+edSignature,undefined,edEnv)).status,200);
+assert.equal((await call('PUT',edData+'.'+edSignature,body,edEnv)).status,409);
 assert.equal((await call('GET',alice,undefined,edEnv)).status,401);
 console.log('Privy fetched public key, signature, expiration, account isolation, draft limits and deletion verified');
+
+globalThis.fetch=originalFetch;
