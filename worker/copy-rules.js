@@ -1,5 +1,11 @@
 export function normalizedBands(value){
-  if(!Array.isArray(value)||value.length!==3)throw Error('Choose three market-cap ranges');
+  if(!Array.isArray(value)||![1,3].includes(value.length))throw Error('Choose one amount or three market-cap ranges');
+  if(value.length===1){
+    if(value[0]?.belowUsd!==null)throw Error('A single amount applies at every market cap');
+    const spendSol=Number(value[0]?.spendSol),units=Math.round(spendSol*1e9);
+    if(!Number.isFinite(spendSol)||spendSol<.001||!Number.isSafeInteger(units)||Math.abs(spendSol*1e9-units)>.001)throw Error('Invalid SOL spend');
+    return [{belowUsd:null,spendSol}];
+  }
   const bands=value.map((x,i)=>({belowUsd:i===2?null:Number(x?.belowUsd),spendSol:Number(x?.spendSol)}));
   if(!Number.isSafeInteger(bands[0].belowUsd)||bands[0].belowUsd<1||
     !Number.isSafeInteger(bands[1].belowUsd)||bands[1].belowUsd<=bands[0].belowUsd||
