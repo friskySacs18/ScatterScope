@@ -1,6 +1,8 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
 const INTERVAL=10000;
-const BUILD='ten-second-feed-metrics-v3';
+const SLOW_INTERVAL=20000;
+const RECOVER_AFTER=30*60*1000;
+const BUILD='adaptive-feed-metrics-v4';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -26,7 +28,7 @@ export default {
       if(!response.ok)return json({error:'Monitor status unavailable'},503);
       const health=await response.json();
       return json({service:'scope-background-monitor',build:BUILD,enabled:health.enabled===true,healthy:health.healthy===true,
-        intervalMs:INTERVAL,lastCheckedAt:health.lastCheckedAt||null,lastSuccessAt:health.lastSuccessAt||null,
+        intervalMs:health.intervalMs||INTERVAL,lastCheckedAt:health.lastCheckedAt||null,lastSuccessAt:health.lastSuccessAt||null,
         providerStatus:health.httpStatus||null,retryAt:health.retryAt||null,
         checksSinceUpgrade:health.checksSinceUpgrade||{successful:0,rateLimited:0,otherFailed:0,maxSuccessfulGapMs:0},executionEnabled:false});
     }
@@ -61,7 +63,7 @@ export class ScopeMonitor {
       if(this.enabled&&!this.busy&&await this.storage.getAlarm()===null)await this.storage.setAlarm(Math.max(Date.now()+1000,this.health.retryAt||0));
     }else if(path!=='/health')return json({error:'Not found'},404);
     const age=Date.now()-Number(this.health.lastSuccessAt||0);
-    return json({...this.health,enabled:this.enabled,healthy:this.enabled&&age>=0&&age<30000&&this.health.lastCheckOk===true,intervalMs:INTERVAL,executionEnabled:false});
+    return json({...this.health,enabled:this.enabled,healthy:this.enabled&&age>=0&&age<30000&&this.health.lastCheckOk===true,intervalMs:this.health.intervalMs||INTERVAL,executionEnabled:false});
   }
   async alarm(){
     await this.ready;
@@ -71,7 +73,8 @@ export class ScopeMonitor {
     const at=Date.now();
     try{
       // Arm the next check first so downstream outages do not end scheduling.
-      await this.storage.setAlarm(at+INTERVAL);
+      const interval=this.health.intervalMs===SLOW_INTERVAL?SLOW_INTERVAL:INTERVAL;
+      await this.storage.setAlarm(at+interval);
       let ok=false,httpStatus=null,error='Monitor unavailable',callerCount=null,retryAfterMs=0;
       try{
         const endpoint=configured(this.env),body='{}';
@@ -95,9 +98,12 @@ export class ScopeMonitor {
       const checksSinceUpgrade={successful:prior.successful+(ok?1:0),rateLimited:prior.rateLimited+(httpStatus===429?1:0),
         otherFailed:prior.otherFailed+(!ok&&httpStatus!==429?1:0),
         maxSuccessfulGapMs:ok&&prior.successful>0&&this.health.lastSuccessAt?Math.max(prior.maxSuccessfulGapMs,completedAt-this.health.lastSuccessAt):prior.maxSuccessfulGapMs};
+      let stableSince=ok?(this.health.lastCheckOk===true?this.health.stableSince||completedAt:completedAt):null;
+      const nextInterval=httpStatus===429?SLOW_INTERVAL:ok&&interval===SLOW_INTERVAL&&completedAt-stableSince>=RECOVER_AFTER?INTERVAL:interval;
+      if(nextInterval!==interval&&ok){stableSince=completedAt;await this.storage.setAlarm(at+nextInterval)}
       if(!ok)console.warn('Scope monitor unhealthy',JSON.stringify({httpStatus,retryAfterMs:retryAfterMs||null,reason:error}));
       else if(this.health.lastCheckOk===false)console.info('Scope monitor recovered',JSON.stringify({httpStatus,callerCount}));
-      this.health={lastCheckedAt:at,lastSuccessAt:ok?completedAt:this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null,checksSinceUpgrade};
+      this.health={lastCheckedAt:at,lastSuccessAt:ok?completedAt:this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null,checksSinceUpgrade,intervalMs:nextInterval,stableSince};
       await this.storage.put('health',this.health);
       if(this.health.retryAt&&this.enabled)await this.storage.setAlarm(this.health.retryAt);
     }finally{this.busy=false;}
