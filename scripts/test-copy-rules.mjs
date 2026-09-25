@@ -5,7 +5,8 @@ const bands=[{belowUsd:100000,spendSol:1},{belowUsd:1000000,spendSol:2},{belowUs
 assert.equal(spendForMarketCap(bands,40000),1);
 assert.equal(spendForMarketCap(bands,100000),2);
 assert.equal(spendForMarketCap(bands,1000000),10);
-assert.throws(()=>normalizedBands([]),/three/);
+assert.equal(spendForMarketCap([{belowUsd:null,spendSol:0.125}],40000),0.125);
+assert.throws(()=>normalizedBands([]),/one amount/);
 assert.throws(()=>normalizedBands([{belowUsd:1000000,spendSol:1},{belowUsd:100000,spendSol:2},{belowUsd:null,spendSol:10}]),/increase/);
 const now=Date.now(),call={id:'first-call',caller:'caller-wallet',mint:'token-mint'},quote={mint:call.mint,marketCapUsd:1000000,observedAt:now-1000},history={complete:true,firstCalloutId:call.id};
 const input={call,quote,history,bands,now,priorPurchase:false};
