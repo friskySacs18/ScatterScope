@@ -43,11 +43,11 @@ export class ScopeMonitor {
     if(path==='/start'){
       try{configured(this.env)}catch{return json({error:'Configure the Scope endpoint and monitor secret before starting'},503)}
       this.enabled=true;await this.storage.put('enabled',true);
-      if(await this.storage.getAlarm()===null)await this.storage.setAlarm(Date.now()+1000);
+      if(await this.storage.getAlarm()===null)await this.storage.setAlarm(Math.max(Date.now()+1000,this.health.retryAt||0));
     }else if(path==='/stop'){
       this.enabled=false;await this.storage.put('enabled',false);await this.storage.deleteAlarm();
     }else if(path==='/watchdog'){
-      if(this.enabled&&!this.busy&&await this.storage.getAlarm()===null)await this.storage.setAlarm(Date.now()+1000);
+      if(this.enabled&&!this.busy&&await this.storage.getAlarm()===null)await this.storage.setAlarm(Math.max(Date.now()+1000,this.health.retryAt||0));
     }else if(path!=='/health')return json({error:'Not found'},404);
     const age=Date.now()-Number(this.health.lastSuccessAt||0);
     return json({...this.health,enabled:this.enabled,healthy:this.enabled&&age>=0&&age<30000&&this.health.lastCheckOk===true,intervalMs:INTERVAL,executionEnabled:false});
@@ -55,12 +55,13 @@ export class ScopeMonitor {
   async alarm(){
     await this.ready;
     if(!this.enabled||this.busy)return;
+    if(this.health.retryAt>Date.now()){await this.storage.setAlarm(this.health.retryAt);return;}
     this.busy=true;
     const at=Date.now();
     try{
       // Arm the next check first so downstream outages do not end scheduling.
       await this.storage.setAlarm(at+INTERVAL);
-      let ok=false,httpStatus=null,error='Monitor unavailable',callerCount=null;
+      let ok=false,httpStatus=null,error='Monitor unavailable',callerCount=null,retryAfterMs=0;
       try{
         const endpoint=configured(this.env),body='{}';
         const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(this.env.SCOPE_MONITOR_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
@@ -70,9 +71,17 @@ export class ScopeMonitor {
         httpStatus=response.status;
         if(response.ok){const raw=await response.text();if(raw.length>4096)throw Error('Oversized response');const data=JSON.parse(raw);ok=data.checked===true&&data.executionEnabled===false;callerCount=Number.isSafeInteger(data.callerCount)?data.callerCount:null;}
         error=ok?null:[301,302,303,307,308,401,403].includes(httpStatus)?'Scope service access is not configured':'Scope monitor check failed';
+        if(httpStatus===429){
+          let delay=60000;
+          try{const raw=await response.text();if(raw.length<=4096){const data=JSON.parse(raw);if(Number.isFinite(data.retryAfterMs))delay=Math.max(delay,Math.min(86400000,data.retryAfterMs));}}catch{}
+          retryAfterMs=Math.max(delay,Math.min(900000,60000*2**Math.min(4,this.health.rateLimitCount||0)));
+          error='Callout provider rate limited; waiting before retry';
+        }
       }catch{error='Monitor request failed'}
-      this.health={lastCheckedAt:at,lastSuccessAt:ok?Date.now():this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error};
+      const rateLimitCount=httpStatus===429?(this.health.rateLimitCount||0)+1:ok?0:(this.health.rateLimitCount||0);
+      this.health={lastCheckedAt:at,lastSuccessAt:ok?Date.now():this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null};
       await this.storage.put('health',this.health);
+      if(this.health.retryAt&&this.enabled)await this.storage.setAlarm(this.health.retryAt);
     }finally{this.busy=false;}
   }
 }
