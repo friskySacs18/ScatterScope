@@ -50,3 +50,11 @@ Sources:
 - https://developers.cloudflare.com/durable-objects/platform/pricing/
 - https://developers.cloudflare.com/durable-objects/api/alarms/
 - https://developers.cloudflare.com/workers/platform/pricing/
+
+## Cloudflare dashboard build settings
+
+Connect `friskySacs18/ScatterScope`, production branch `main`, to Worker `scope-background-monitor`. Set root directory to `monitor/cloudflare`, leave the build command blank, and use deploy command `npx wrangler deploy`. Disable preview builds for this observation service.
+
+With that root directory, do not repeat `monitor/cloudflare` in the deploy command's config path. If the root directory remains `/`, use `npx wrangler deploy --config monitor/cloudflare/wrangler.jsonc` instead.
+
+Verify a fresh build from the connected repository: a dashboard-created Worker version alone does not prove this source was deployed. An unauthenticated GET `/health` should return HTTP 401 with `Monitor administrator authentication required`; this proves the route is serving, not that monitoring is enabled or healthy.
