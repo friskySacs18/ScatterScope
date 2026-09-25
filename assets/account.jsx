@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {PrivyProvider,usePrivy,useSigners} from '@privy-io/react-auth';
-import {useWallets,useCreateWallet,useSignAndSendTransaction} from '@privy-io/react-auth/solana';
+import {useWallets,useCreateWallet,useSignTransaction} from '@privy-io/react-auth/solana';
 import {PublicKey,SystemProgram,TransactionMessage,VersionedTransaction} from '@solana/web3.js';
 import bs58 from 'bs58';
 import {createSolanaRpc,createSolanaRpcSubscriptions} from '@solana/kit';
@@ -71,10 +71,11 @@ function Account(){
   const {ready,authenticated,login,logout,getAccessToken}=usePrivy();
   const {wallets,ready:walletsReady}=useWallets();
   const {createWallet}=useCreateWallet();
-  const {signAndSendTransaction}=useSignAndSendTransaction();
+  const {signTransaction}=useSignTransaction();
   const [balance,setBalance]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[destination,setDestination]=useState(''),[amount,setAmount]=useState(''),[review,setReview]=useState(null),[signature,setSignature]=useState('');
   const [balanceMessage,setBalanceMessage]=useState('');
   const [walletCheck,setWalletCheck]=useState('');
+  const [pending,setPending]=useState(false);
   const wallet=authenticated&&walletsReady?wallets.find(w=>w.standardWallet?.name==='Privy'):null;
   const address=wallet?.address||'';
   async function verifyWallet(){
@@ -96,9 +97,10 @@ function Account(){
       setBalance(data.lamports);setBalanceMessage(data.source==='privy'?'Updated from your Privy wallet.':'Updated from Solana.');
     }catch(error){setBalance(null);setBalanceMessage(error.message||'Balance unavailable.');}
   }
-  useEffect(()=>{setBalance(null);setReview(null);setSignature('');setWalletCheck('');setBalanceMessage('');if(address)refresh();},[address]);
+  useEffect(()=>{setBalance(null);setReview(null);setWalletCheck('');setBalanceMessage('');const stored=address?localStorage.getItem('scope-pending-withdrawal-'+address):null;setSignature(stored||'');setPending(Boolean(stored));if(stored)setMessage('Check this transfer signature before starting another withdrawal.');if(address)refresh();},[address]);
   function prepare(event){
-    event.preventDefault();setReview(null);setSignature('');
+    event.preventDefault();setReview(null);
+    if(pending){setMessage('Check your previous transfer before preparing another withdrawal.');return;}
     try{
       if(!wallet||!addressPattern.test(destination.trim()))throw Error('Enter a valid destination address.');
       const to=new PublicKey(destination.trim()).toBase58();
@@ -111,35 +113,49 @@ function Account(){
       setReview({to,units,display:entered.startsWith('.')?'0'+entered:entered});setMessage('Check the amount and full destination before approving.');
     }catch(error){setMessage(error.message||'Review failed');}
   }
+  async function checkTransfer(encoded=signature){
+    if(!encoded)return;
+    try{
+      const check=await fetch('/api/manual-trade/status?signature='+encodeURIComponent(encoded),{cache:'no-store'});
+      const result=await check.json();if(!check.ok)throw Error(result.error||'Confirmation status unavailable.');
+      if(result.state==='confirmed'||result.state==='finalized'){
+        setMessage('Transfer confirmed on Solana.');setPending(false);localStorage.removeItem('scope-pending-withdrawal-'+address);await refresh(true);
+      }else if(result.state==='failed'){
+        setMessage('Transfer failed on Solana. Review the signature before another attempt.');setPending(false);localStorage.removeItem('scope-pending-withdrawal-'+address);await refresh(true);
+      }else setMessage('Transfer status is pending or unavailable in the RPC history. Check the explorer before retrying.');
+    }catch(error){setMessage((error?.message||'Status unavailable.')+' Check the transaction explorer before retrying.');}
+  }
   async function send(){
-    if(!review||!wallet||busy)return;
-    setBusy(true);setMessage('Preparing transfer…');
+    if(!review||!wallet||busy||pending)return;
+    setBusy(true);setMessage('Preparing transfer…');let signedSignature='';
     try{
       const response=await fetch('/api/account/blockhash',{cache:'no-store'});const data=await response.json();if(!response.ok||!data.blockhash)throw Error(data.error||'Could not fetch a recent blockhash.');
       const instruction=SystemProgram.transfer({fromPubkey:new PublicKey(address),toPubkey:new PublicKey(review.to),lamports:Number(review.units)});
-      const message=new TransactionMessage({payerKey:new PublicKey(address),recentBlockhash:data.blockhash,instructions:[instruction]}).compileToV0Message();
-      const transaction=new VersionedTransaction(message);
+      const wire=new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(address),recentBlockhash:data.blockhash,instructions:[instruction]}).compileToV0Message());
       setMessage('Approve this SOL transfer in your Privy wallet.');
-      const sent=await signAndSendTransaction({transaction:transaction.serialize(),wallet,chain:'solana:mainnet',options:{uiOptions:{showWalletUIs:true}}});
-      const encoded=bs58.encode(sent.signature);
-      setSignature(encoded);setReview(null);setAmount('');setMessage('Submitted. Waiting for confirmation…');
-      let settled=false;
-      for(let attempt=0;attempt<12;attempt++){
-        await new Promise(resolve=>setTimeout(resolve,2000));
-        const check=await fetch('/api/manual-trade/status?signature='+encodeURIComponent(encoded),{cache:'no-store'});
-        if(!check.ok)continue;
-        const result=await check.json();
-        if(result.state==='confirmed'||result.state==='finalized'){setMessage('Transfer confirmed on Solana.');settled=true;break;}
-        if(result.state==='failed'){setMessage('Transfer failed on Solana. Check the signature.');settled=true;break;}
+      const result=await signTransaction({transaction:wire.serialize(),wallet,chain:'solana:mainnet',options:{uiOptions:{showWalletUIs:true}}});
+      const signed=VersionedTransaction.deserialize(result.signedTransaction);
+      signedSignature=bs58.encode(signed.signatures[0]);
+      if(!signedSignature||signed.signatures[0].every(byte=>byte===0))throw Error('Privy did not return a signed transaction. Nothing was submitted.');
+      setSignature(signedSignature);setPending(true);localStorage.setItem('scope-pending-withdrawal-'+address,signedSignature);
+      setReview(null);setMessage('Signed. Submitting this transfer to Solana…');
+      const token=await getAccessToken();if(!token)throw Error('Session expired after signing. Check this signature before trying again.');
+      const broadcast=await fetch('/api/account/withdraw',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({wallet:address,destination:review.to,lamports:Number(review.units),transaction:btoa(String.fromCharCode(...result.signedTransaction))})});
+      const submitted=await broadcast.json();if(!broadcast.ok)throw Error(submitted.error||'Submission status unknown.');
+      setAmount('');setMessage('Submitted. Checking confirmation…');
+      for(let attempt=0;attempt<8;attempt++){
+        await new Promise(resolve=>setTimeout(resolve,2500));
+        const check=await fetch('/api/manual-trade/status?signature='+encodeURIComponent(signedSignature),{cache:'no-store'});
+        if(!check.ok)continue;const status=await check.json();
+        if(status.state==='confirmed'||status.state==='finalized'||status.state==='failed'){await checkTransfer(signedSignature);return;}
       }
-      if(!settled)setMessage('Transfer submitted. Confirmation is pending; check the signature before trying again.');
-      await refresh(true);
-    }catch(error){setMessage(error?.message||'Transfer cancelled or failed. Check account activity before trying again.');}
+      setMessage('Submitted; confirmation is still pending. Check the signature before trying again.');
+    }catch(error){setMessage((error?.message||'Transfer failed.')+(signedSignature?' The signed transfer has a signature; check its status before retrying.':''));}
     finally{setBusy(false);}
   }
   if(!ready||!walletsReady)return <div className="panel">Opening your account…</div>;
   if(!authenticated)return <div className="panel"><h2>Sign in to create an account.</h2><p>Your login controls a separate Privy Solana wallet. Sign in with an option enabled in your Privy app.</p><button className="action primary" onClick={login}>SIGN IN WITH PRIVY</button></div>;
   if(!wallet)return <div className="panel"><h2>Create your Solana wallet.</h2><p>One dedicated address for receiving SOL. Account creation does not delegate trading access to Scope.</p><button className="action primary" disabled={busy} onClick={async()=>{setBusy(true);try{await createWallet();setMessage('Wallet created.');}catch(error){setMessage(error?.message||'Could not create wallet.')}finally{setBusy(false)}}}>CREATE WALLET</button><button className="action" onClick={logout}>SIGN OUT</button><p role="status" className="status">{message}</p></div>;
-  return <div className="grid"><section className="panel wide snipe-start"><div><span className="tag">CALLOUT SNIPING · AUTOMATIC ORDERS OFF</span><h2>Follow callers. Set your rules.</h2></div><div className="snipe-actions"><a className="action primary" href="/#callerDesk">ADD CALLERS ↗</a><a className="action" href="#autoRules">SET SNIPE RULES ↓</a></div></section><section className="panel"><span className="tag">02 / FUND SCOPE WALLET</span><h2>Your wallet</h2><div className="balance">{balance===null?'—':(Number(balance)/1e9).toLocaleString(undefined,{maximumFractionDigits:9})} <span style={{fontSize:19}}>SOL</span></div><p>Receive SOL at this exact Solana mainnet address. Verify it in the Privy wallet before sending a small test amount.</p><code className="address">{address}</code><button className="action" onClick={async()=>{try{await navigator.clipboard.writeText(address);setMessage('Address copied.')}catch{setMessage('Select and copy the address above.')}}}>COPY ADDRESS</button><button className="action" disabled={busy} onClick={()=>refresh()}>REFRESH BALANCE</button><p role="status" className="status">{balanceMessage}</p><button className="action" onClick={verifyWallet}>VERIFY ACCOUNT WALLET</button><p role="status" className="status">{walletCheck}</p><button className="action" onClick={logout}>SIGN OUT</button></section><section className="panel"><span className="tag">03 / WITHDRAW SOL</span><h2>Withdraw SOL</h2><p>Review the recipient and amount. Your Privy wallet asks you to approve this transfer.</p><form onSubmit={prepare}><label className="field"><span>DESTINATION / SOLANA ADDRESS</span><input autoComplete="off" spellCheck="false" value={destination} onChange={e=>{setDestination(e.target.value);setReview(null);setMessage('')}} placeholder="Paste recipient address" required /></label><label className="field"><span>AMOUNT / SOL</span><input inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setReview(null);setMessage('')}} placeholder="0.01" required /></label><button className="action primary" disabled={busy} type="submit">REVIEW WITHDRAWAL</button></form>{review&&<div className="review"><strong>Send {review.display} SOL</strong><p>To this full address:</p><code>{review.to}</code><p>Network fees come from this wallet. Transfers cannot be reversed.</p><button className="action primary" disabled={busy} onClick={send}>APPROVE IN PRIVY</button><button className="action" disabled={busy} onClick={()=>setReview(null)}>CANCEL</button></div>}{signature&&<p>Transaction: <a href={'https://solscan.io/tx/'+signature} target="_blank" rel="noopener noreferrer">View on Solscan ↗</a></p>}<p role="status" className="status">{message}</p></section><AutoTradeSetup address={address}/><TradingStatus/></div>;
+  return <div className="grid"><section className="panel wide snipe-start"><div><span className="tag">CALLOUT SNIPING · AUTOMATIC ORDERS OFF</span><h2>Follow callers. Set your rules.</h2></div><div className="snipe-actions"><a className="action primary" href="/#callerDesk">ADD CALLERS ↗</a><a className="action" href="#autoRules">SET SNIPE RULES ↓</a></div></section><section className="panel"><span className="tag">02 / FUND SCOPE WALLET</span><h2>Your wallet</h2><div className="balance">{balance===null?'—':(Number(balance)/1e9).toLocaleString(undefined,{maximumFractionDigits:9})} <span style={{fontSize:19}}>SOL</span></div><p>Receive SOL at this exact Solana mainnet address. Verify it in the Privy wallet before sending a small test amount.</p><code className="address">{address}</code><button className="action" onClick={async()=>{try{await navigator.clipboard.writeText(address);setMessage('Address copied.')}catch{setMessage('Select and copy the address above.')}}}>COPY ADDRESS</button><button className="action" disabled={busy} onClick={()=>refresh()}>REFRESH BALANCE</button><p role="status" className="status">{balanceMessage}</p><button className="action" onClick={verifyWallet}>VERIFY ACCOUNT WALLET</button><p role="status" className="status">{walletCheck}</p><button className="action" onClick={logout}>SIGN OUT</button></section><section className="panel"><span className="tag">03 / WITHDRAW SOL</span><h2>Withdraw SOL</h2><p>Review the recipient and amount. Your Privy wallet asks you to approve this transfer.</p><form onSubmit={prepare}><label className="field"><span>DESTINATION / SOLANA ADDRESS</span><input autoComplete="off" spellCheck="false" value={destination} onChange={e=>{setDestination(e.target.value);setReview(null);setMessage('')}} placeholder="Paste recipient address" required /></label><label className="field"><span>AMOUNT / SOL</span><input inputMode="decimal" value={amount} onChange={e=>{setAmount(e.target.value);setReview(null);setMessage('')}} placeholder="0.01" required /></label><button className="action primary" disabled={busy||pending} type="submit">REVIEW WITHDRAWAL</button></form>{review&&<div className="review"><strong>Send {review.display} SOL</strong><p>To this full address:</p><code>{review.to}</code><p>Network fees come from this wallet. Transfers cannot be reversed.</p><button className="action primary" disabled={busy} onClick={send}>APPROVE IN PRIVY</button><button className="action" disabled={busy} onClick={()=>setReview(null)}>CANCEL</button></div>}{signature&&<div className="transfer-track"><span className="tag">TRANSFER SIGNATURE</span><code className="address">{signature}</code><a className="action" href={'https://solscan.io/tx/'+signature} target="_blank" rel="noopener noreferrer">VIEW ON SOLSCAN ↗</a><button className="action" disabled={busy} onClick={()=>checkTransfer()}>CHECK TRANSFER STATUS</button></div>}<p role="status" className="status">{message}</p></section><AutoTradeSetup address={address}/><TradingStatus/></div>;
 }
 createRoot(document.getElementById('accountRoot')).render(<PrivyProvider appId={APP_ID} config={{embeddedWallets:{solana:{createOnLogin:'users-without-wallets'}},appearance:{theme:'dark',accentColor:'#d8b279'},solana:{rpcs:{'solana:mainnet':{rpc:createSolanaRpc('https://solana-rpc.publicnode.com'),rpcSubscriptions:createSolanaRpcSubscriptions('wss://solana-rpc.publicnode.com')}}}}}><Account/></PrivyProvider>);
