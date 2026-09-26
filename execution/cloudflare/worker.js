@@ -4,7 +4,7 @@
 import {Connection} from '@solana/web3.js';
 import {preparePumpCanaryBuy} from './pump-canary-build.js';
 
-const BUILD='executor-preflight-v2';
+const BUILD='executor-preflight-v3';
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const ADDRESS=/^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const utf8=new TextEncoder();
@@ -19,6 +19,7 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status')return reply({service:'scope-order-executor',build:BUILD,
       executionEnabled:false,signerConfigured:false,ordersSupported:false,
+      rpcConfigured:typeof env?.RPC_URL==='string'&&env.RPC_URL.startsWith('https://'),
       canaryPreparationConfigured:typeof env?.CANARY_PREPARE_TOKEN==='string'&&env.CANARY_PREPARE_TOKEN.length>=32&&!!env.RPC_URL,
       reason:'Account authority, verified history, quotes and transaction reconciliation pending'});
     // An operator-only, read-only canary preflight. It returns an unsigned
