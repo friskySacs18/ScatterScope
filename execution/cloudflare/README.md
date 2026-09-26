@@ -2,6 +2,8 @@
 
 **Release state: locked.** `order-controls.js` and `order-journal.js` are tested building blocks, not a deployed executor. They contain no route that signs or broadcasts a transaction. The existing `scope-background-monitor` must keep its monitor-only secrets and must never receive wallet authority.
 
+The owner selected **first call only**. `history-backfill.js` reads the documented FomoScan wallet pages and rejects malformed pages, duplicates, cursor loops and incomplete pagination. Its result says `paginationExhausted`, deliberately not `historyComplete`: the provider's archive start and coverage must be independently verified before any `caller_mint_history.history_complete` flag is changed. The API requires a separate key and charges 10 credits per wallet page. Nothing in this repository requests a key or spends credits during local tests.
+
 ## Production topology
 
 1. Host the full account website and state on a separate Cloudflare Worker and Cloudflare-owned D1 database. ChatGPT Sites is not the production financial-transaction host. Preserve Privy auth subjects and wallet IDs when migrating the existing account data; verify each account's readback and do not merge an email identity with a Phantom identity by wallet-name guess.
@@ -14,4 +16,4 @@
 
 Cloudflare needs a *second* Worker and database to host execution. The current GitHub-connected background monitor remains separate. No key, DB ID or deployment setting should be copied from the monitor for wallet signing. Sources: https://docs.privy.io/api-reference/wallets/solana/sign-transaction , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/BUY.md , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/SELL.md , https://developers.cloudflare.com/durable-objects/api/alarms/ .
 
-Local checks: `node scripts/test-cloudflare-order-controls.mjs` and `node scripts/test-cloudflare-order-journal.mjs`.
+Local checks: `node scripts/test-cloudflare-order-controls.mjs`, `node scripts/test-cloudflare-order-journal.mjs`, and `node execution/cloudflare/test-history-backfill.mjs`.
