@@ -2,6 +2,7 @@
   "name": "scope-order-executor",
   "main": "worker.js",
   "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "durable_objects": {
     "bindings": [{"name": "ACCOUNT_ORDERS", "class_name": "AccountOrderJournal"}]
