@@ -1,6 +1,6 @@
 # Scope: free-tier background monitor candidate
 
-This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target ten seconds when healthy and twenty seconds after provider throttling, with no browser open. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and private health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
+This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target twenty seconds when healthy and thirty seconds after provider throttling, with no browser open. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and private health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
 
 **Status: deployed and started on 25 September 2026; browser-independent ticks observed. Pump rate limiting blocks reliable ten-second coverage.** It is an observation scheduler, not a completed live trading engine. Timing is a target, not a guaranteed execution deadline.
 
@@ -23,14 +23,14 @@ Deployment is stopped by default. The cron watchdog does not activate it. An aut
 
 The Scope Site is currently public, as independently verified during deployment. Monitor ticks still require a timestamped HMAC signature. Account routes require Privy authentication and wallet ownership. Start, stop and health require the separate monitor administrator token. No owner browser token is stored by this service.
 
-On provider HTTP 429 the scheduler persists a cooldown: at least 60 seconds, increasing to 15 minutes on consecutive throttles, or longer when the provider explicitly requests it (up to one day). The watchdog and stop/start preserve this deadline. Health remains unhealthy during failed checks. After recovery, the target is twenty seconds until 30 minutes of successful checks, when it cautiously tries ten seconds again. A subsequent 429 returns it to twenty seconds. This protects the provider; it does not guarantee callout coverage during an outage.
+On provider HTTP 429 the scheduler persists a cooldown: at least 60 seconds, increasing to 15 minutes on consecutive throttles, or longer when the provider explicitly requests it (up to one day). The watchdog and stop/start preserve this deadline. Health remains unhealthy during failed checks. After recovery, the target is thirty seconds until 30 minutes of successful checks, when it cautiously tries twenty seconds again. A subsequent 429 returns it to thirty seconds. This protects the provider; it does not guarantee callout coverage during an outage.
 
 ## Free-tier estimate, checked 25 September 2026
 
-For one ten-second scheduler:
+For one twenty-second scheduler:
 
-- 10,800 alarm invocations/day plus 1,440 watchdog calls/day and occasional administrator requests.
-- About 21,600 application writes/day for the next alarm and the health record, plus platform metadata/administrative writes.
+- 4,320 alarm invocations/day plus 1,440 watchdog calls/day and occasional administrator requests.
+- About 8,640 application writes/day for the next alarm and the health record, plus platform metadata/administrative writes.
 - A conservative continuously-active single-object calculation is 0.128 GB × 86,400 seconds = 11,059.2 GB-seconds/day. Actual platform accounting must be measured.
 
 Published Durable Object free allowances are 100,000 requests/day, 13,000 GB-seconds/day and 100,000 SQLite rows written/day. These estimates suggest a **single observation scheduler could fit**, not that the full Scope app or hundreds of active users will be free. Other objects, control traffic, retries, Site database reads/writes, Pump provider traffic, wallet login and Solana RPC have separate usage. Free limits stop operations when exhausted. Alarms are at-least-once and can be delayed/retried.
