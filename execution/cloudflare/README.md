@@ -2,6 +2,8 @@
 
 **Release state: locked.** `order-controls.js` and `order-journal.js` are tested building blocks, not a deployed executor. `worker.js` and `wrangler.jsonc` provide a separately named, deployable bootstrap with per-account Durable Object namespace. Every buy, sell, reconcile and canary route returns 423; it has no route that signs or broadcasts a transaction. The existing `scope-background-monitor` must keep its monitor-only secrets and must never receive wallet authority.
 
+`inspect-pump-v2.js` is a further offline prerequisite: it rejects wrong signer/mint/amount/limit and unexpected instructions for SOL-paired Pump `buy_v2` and `sell_v2`. It currently allows only a pre-existing token account and has not been tested against a real builder output. It does not prove on-chain fee recipients, curve state, current quotes, token account ownership, simulation or wallet delegation. The sell journal now reserves one full-balance exit only after a finalized buy. Neither module is called by the locked HTTP routes.
+
 The owner selected **first call only**. `history-backfill.js` reads the documented FomoScan wallet pages and rejects malformed pages, duplicates, cursor loops and incomplete pagination. Its result says `paginationExhausted`, deliberately not `historyComplete`: the provider's archive start and coverage must be independently verified before any `caller_mint_history.history_complete` flag is changed. The API requires a separate key and charges 10 credits per wallet page. Nothing in this repository requests a key or spends credits during local tests.
 
 ## Production topology
@@ -16,4 +18,4 @@ The owner selected **first call only**. `history-backfill.js` reads the document
 
 Cloudflare needs a *second* Worker and database to host execution. The current GitHub-connected background monitor remains separate. No key, DB ID or deployment setting should be copied from the monitor for wallet signing. Sources: https://docs.privy.io/api-reference/wallets/solana/sign-transaction , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/BUY.md , https://github.com/pump-fun/pump-public-docs/blob/main/docs/instructions/SELL.md , https://developers.cloudflare.com/durable-objects/api/alarms/ .
 
-Local checks: `node scripts/test-cloudflare-order-controls.mjs`, `node scripts/test-cloudflare-order-journal.mjs`, `node execution/cloudflare/test-history-backfill.mjs`, and `node execution/cloudflare/test-executor-preflight.mjs`.
+Local checks: `node scripts/test-cloudflare-order-controls.mjs`, `node scripts/test-cloudflare-order-journal.mjs`, `node execution/cloudflare/test-inspect-pump-v2.mjs`, `node execution/cloudflare/test-history-backfill.mjs`, and `node execution/cloudflare/test-executor-preflight.mjs`.
