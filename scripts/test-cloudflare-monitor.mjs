@@ -15,16 +15,16 @@ globalThis.fetch=async(url,options)=>{
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v4',intervalMs:10000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v5',intervalMs:20000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
- assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,10000);
+ assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,20000);
  assert.equal(Object.hasOwn(publicBody,'callerCount'),false);assert.equal(Object.hasOwn(publicBody,'error'),false);
  assert.equal((await worker.fetch(req('/start',false),env)).status,401);assert.equal(alarm,null);
  let promise;await worker.scheduled({},env,{waitUntil:p=>{promise=p}});await promise;assert.equal(alarm,null,'Watchdog cannot start a stopped monitor');
  assert.equal((await worker.fetch(req('/start'),env)).status,200);assert.ok(alarm>Date.now());const firstAlarm=alarm;
  await worker.fetch(req('/start'),env);assert.equal(alarm,firstAlarm,'Repeated start does not postpone the scheduled check');
- const at=Date.now();alarm=null;await monitor.alarm();assert.ok(alarm>=at+10000&&alarm<at+10100);assert.equal(calls,1);
+ const at=Date.now();alarm=null;await monitor.alarm();assert.ok(alarm>=at+20000&&alarm<at+20100);assert.equal(calls,1);
  assert.equal((await (await worker.fetch(req('/health'),env)).json()).healthy,true);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,true,'Restart restores enabled state');
  fail=true;alarm=null;await monitor.alarm();const health=await (await worker.fetch(req('/health'),env)).json();assert.equal(health.healthy,false);assert.match(health.error,/access/);assert.ok(alarm>Date.now(),'Access failures leave future checks scheduled');
@@ -32,7 +32,7 @@ try{
  throttle=true;fail=false;await monitor.alarm();
  const throttled=await (await worker.fetch(req('/health'),env)).json();
  assert.equal(throttled.healthy,false);assert.equal(throttled.httpStatus,429);assert.ok(throttled.retryAt>=Date.now()+119000);
- assert.equal(throttled.intervalMs,20000,'Throttle slows future polling without bypassing cooldown');
+ assert.equal(throttled.intervalMs,30000,'Throttle slows future polling without bypassing cooldown');
  const pausedCalls=calls;monitor=create();await monitor.ready;alarm=null;
  await worker.scheduled({},env,{waitUntil:p=>{promise=p}});await promise;
  assert.equal(alarm,throttled.retryAt,'Watchdog respects durable cooldown after restart');
@@ -42,15 +42,15 @@ try{
  monitor.health.retryAt=Date.now()-1;await monitor.alarm();assert.equal(calls,pausedCalls+1);
  throttle=false;monitor.health.retryAt=Date.now()-1;await monitor.alarm();
  const recovered=await (await worker.fetch(req('/health'),env)).json();assert.equal(recovered.healthy,true);assert.equal(recovered.retryAt,null);assert.equal(recovered.rateLimitCount,0);
- assert.equal(recovered.intervalMs,20000,'One recovered check does not immediately resume the rate-limited pace');
+ assert.equal(recovered.intervalMs,30000,'One recovered check does not immediately resume the rate-limited pace');
  const summary=await (await worker.fetch(new Request('https://monitor.test/status'),env)).json();
  assert.deepEqual(summary.checksSinceUpgrade,{successful:2,rateLimited:2,otherFailed:1,maxSuccessfulGapMs:recovered.checksSinceUpgrade.maxSuccessfulGapMs});
  assert.ok(summary.checksSinceUpgrade.maxSuccessfulGapMs>=0);
  assert.equal(Object.hasOwn(summary,'callerCount'),false);
  monitor.health.stableSince=Date.now()-30*60*1000-1000;
  await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,10000,'A sustained healthy period tries the faster interval again');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'A sustained healthy period tries the faster interval again');
  await worker.fetch(req('/stop'),env);assert.equal(alarm,null);const before=calls;await monitor.alarm();assert.equal(calls,before);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,false,'Stop survives a restart');
- console.log('Cloudflare scheduler: ten-second alarms, authenticated controls, restart recovery, watchdog, redirect rejection and persistent stop verified locally');
+ console.log('Cloudflare scheduler: twenty-second alarms, authenticated controls, restart recovery, watchdog, redirect rejection and persistent stop verified locally');
 }finally{globalThis.fetch=original}
