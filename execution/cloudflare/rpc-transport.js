@@ -4,8 +4,12 @@ import {VersionedTransaction} from '@solana/web3.js';
 const ADDRESS=/^[1-9A-HJ-NP-Za-km-z]{80,90}$/;
 function rpcEndpoint(input){
   const url=new URL(input);
-  if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search||url.port||
-    !['api.mainnet-beta.solana.com','solana-rpc.publicnode.com'].includes(url.hostname)||url.pathname!=='/')
+  const publicHost=['api.mainnet-beta.solana.com','api.mainnet.solana.com','solana-rpc.publicnode.com'].includes(url.hostname);
+  const heliusHost=url.hostname==='mainnet.helius-rpc.com';
+  const heliusKey=url.searchParams.get('api-key');
+  if(url.protocol!=='https:'||url.username||url.password||url.hash||url.port||url.pathname!=='/'||
+    !(publicHost&&!url.search||heliusHost&&url.searchParams.size===1&&
+      typeof heliusKey==='string'&&/^[A-Za-z0-9_-]{16,128}$/.test(heliusKey)))
     throw Error('Unapproved Solana RPC endpoint');
   return url.href;
 }
