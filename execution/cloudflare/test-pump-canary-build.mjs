@@ -11,12 +11,12 @@ const tokenProgram=key('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const quoteMint=key('So11111111111111111111111111111111111111112');
 const state={bondingCurve:{complete:false,realTokenReserves:new BN('1000000000')},quoteMint,quoteTokenProgram:tokenProgram,associatedUserAccountInfo:null};
 const onlineSdk={fetchGlobal:async()=>({}),fetchFeeConfig:async()=>({}),fetchBuyState:async()=>state};
-const connection={rpcEndpoint:'https://api.mainnet-beta.solana.com/',getAccountInfo:async()=>({owner:tokenProgram}),
+const connection={rpcEndpoint:'https://api.mainnet-beta.solana.com/',getAccountInfo:async(address)=>address.toBase58()===mint?{owner:tokenProgram}:null,
   getTokenSupply:async()=>({value:{amount:'1000000000'}}),getBalance:async()=>5000000,
-  getLatestBlockhash:async()=>({blockhash:mint,lastValidBlockHeight:1}),getMinimumBalanceForRentExemption:async()=>2500000};
+  getLatestBlockhash:async()=>({blockhash:mint,lastValidBlockHeight:1}),getMinimumBalanceForRentExemption:async(size)=>size===137?1844400:2500000};
 await assert.rejects(preparePumpCanaryBuy({connection,wallet:'invalid',mint,onlineSdk}),/Invalid wallet/);
 await assert.rejects(preparePumpCanaryBuy({connection,wallet,mint,onlineSdk}),/Insufficient balance/);
-const enough={...connection,getBalance:async()=>7000000};
+const enough={...connection,getBalance:async()=>12000000};
 await assert.rejects(preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk:{...onlineSdk,fetchBuyState:async()=>({...state,quoteMint:key(wallet)})}}),/curve or chain state/);
 await assert.rejects(preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk:{...onlineSdk,fetchBuyState:async()=>({...state,bondingCurve:{complete:true}})}}),/curve or chain state/);
 const offlineSdk={buyV2Instructions:async({user,mint:coin,amount,quoteAmount})=>[
@@ -26,7 +26,7 @@ let simulated=0;
 const preview=await preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk,offlineSdk,quote:()=>new BN('1000000'),
   simulate:async({encoded})=>{simulated++;assert.ok(encoded.length>100);return {passed:true,unitsConsumed:90000}}});
 assert.equal(preview.maximumSpendLamports,'1890000');
-assert.equal(preview.reservedRentLamports,'2500000');
+assert.equal(preview.reservedRentLamports,'6844400');
 assert.equal(preview.minimumRemainingLamports,'500000');
 assert.equal(simulated,1);
 console.log('Canary builder refuses invalid wallets, inadequate rent reserve, wrong quote mint and graduated curves');
