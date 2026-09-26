@@ -1,6 +1,6 @@
 import BN from 'bn.js';
 import {ComputeBudgetProgram,PublicKey,TransactionMessage,VersionedTransaction} from '@solana/web3.js';
-import {OnlinePumpSdk,PUMP_SDK,getBuyTokenAmountFromSolAmount} from '@pump-fun/pump-sdk';
+import {OnlinePumpSdk,PUMP_SDK,getBuyTokenAmountFromSolAmount,userVolumeAccumulatorPda} from '@pump-fun/pump-sdk';
 import {inspectPumpV2Transaction} from './inspect-pump-v2.js';
 import {simulateUnsignedTrade} from './rpc-transport.js';
 
@@ -9,7 +9,7 @@ const WSOL='So11111111111111111111111111111111111111112';
 const TOKEN='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN_2022='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const ADDRESS=/^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const BUDGET=2000000n,QUOTE=1800000n,RESERVE=500000n,FEE_ALLOWANCE=100000n;
+const BUDGET=2000000n,QUOTE=1800000n,RESERVE=500000n,FEE_ALLOWANCE=100000n,OTHER_RENT_ALLOWANCE=2500000n;
 
 // Read-only canary preparation. The caller must separately authenticate wallet
 // ownership, persist a single order and exact signed bytes, and reconcile the
@@ -19,18 +19,24 @@ export async function preparePumpCanaryBuy({connection,wallet,mint,onlineSdk=new
   quote=getBuyTokenAmountFromSolAmount,simulate=simulateUnsignedTrade,fetcher=fetch}={}){
   if(!ADDRESS.test(wallet||'')||!ADDRESS.test(mint||'')||wallet===mint)throw Error('Invalid wallet or mint');
   const user=new PublicKey(wallet),coin=new PublicKey(mint);
-  const [global,feeConfig,state,mintAccount,supply,balance,blockhash]=await Promise.all([
+  const [global,feeConfig,state,mintAccount,supply,balance,blockhash,volumeAccount]=await Promise.all([
     onlineSdk.fetchGlobal(),onlineSdk.fetchFeeConfig(),onlineSdk.fetchBuyState(coin,user),
     connection.getAccountInfo(coin,'confirmed'),connection.getTokenSupply(coin,'confirmed'),
-    connection.getBalance(user,'confirmed'),connection.getLatestBlockhash('confirmed')
+    connection.getBalance(user,'confirmed'),connection.getLatestBlockhash('confirmed'),
+    connection.getAccountInfo(userVolumeAccumulatorPda(user),'confirmed')
   ]);
   const program=mintAccount?.owner?.toBase58();
   if(![TOKEN,TOKEN_2022].includes(program)||!state?.bondingCurve||state.bondingCurve.complete||
      state.quoteMint?.toBase58()!==WSOL||state.quoteTokenProgram?.toBase58()!==TOKEN||
      !/^[1-9]\d*$/.test(supply?.value?.amount||'')||!Number.isSafeInteger(balance)||balance<0||
      !blockhash?.value?.blockhash&&!blockhash?.blockhash)throw Error('Pump SOL curve or chain state unverified');
-  const rent=state.associatedUserAccountInfo?0:await connection.getMinimumBalanceForRentExemption(512,'confirmed');
-  if(!Number.isSafeInteger(rent)||rent<0||BigInt(balance)<BUDGET+BigInt(rent)+RESERVE+FEE_ALLOWANCE)
+  const [tokenRent,volumeRent]=await Promise.all([
+    state.associatedUserAccountInfo?0:connection.getMinimumBalanceForRentExemption(512,'confirmed'),
+    volumeAccount?0:connection.getMinimumBalanceForRentExemption(137,'confirmed')]);
+  if(!Number.isSafeInteger(tokenRent)||tokenRent<0||!Number.isSafeInteger(volumeRent)||volumeRent<0)
+    throw Error('Cannot establish token and volume account rent');
+  const rent=BigInt(tokenRent)+BigInt(volumeRent)+OTHER_RENT_ALLOWANCE;
+  if(BigInt(balance)<BUDGET+rent+RESERVE+FEE_ALLOWANCE)
     throw Error('Insufficient balance for 0.002 SOL, token-account rent, fees and reserve');
   const amount=quote({global,feeConfig,mintSupply:new BN(supply.value.amount),
     bondingCurve:state.bondingCurve,amount:new BN(QUOTE.toString()),quoteMint:new PublicKey(WSOL)});
@@ -52,6 +58,6 @@ export async function preparePumpCanaryBuy({connection,wallet,mint,onlineSdk=new
   const simulation=await simulate({encoded,rpcUrl:connection.rpcEndpoint,fetcher});
   if(!simulation.passed)throw Error('Trade simulation failed');
   return {transaction:encoded,wallet,mint,tokenAmountRaw:amount.toString(),maximumSpendLamports:cap.toString(),
-    balanceLamports:String(balance),reservedRentLamports:String(rent),minimumRemainingLamports:RESERVE.toString(),
+    balanceLamports:String(balance),reservedRentLamports:rent.toString(),minimumRemainingLamports:RESERVE.toString(),
     lastValidBlockHeight:blockhash.value?.lastValidBlockHeight||blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }
