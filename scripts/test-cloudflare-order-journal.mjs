@@ -8,7 +8,7 @@ const evidence={killSwitch:false,executionEnabled:true,accountStatus:'active',ow
  accountId:'account-1',signalId:'call-1',wallet:'11111111111111111111111111111111',caller:'11111111111111111111111111111111',mint:'So11111111111111111111111111111111111111112',
  selectedCaller:true,signalVerified:true,historyComplete:true,firstCall:true,mintAlreadyHeld:false,publishedAt:now-5000,observedAt:now-3000,monitorHeartbeatAt:now-1000,feedHealthy:true,
  quoteAt:now-1000,marketCapUsd:25000,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
- maxLamports:'2000000',dailyCapLamports:'3000000',dailyReservedLamports:'0',balanceLamports:'4000000',maxFeeLamports:'1000000'};
+ maxLamports:'2000000',dailyCapLamports:'3000000',dailyReservedLamports:'0',balanceLamports:'5000000',maxFeeLamports:'100000',rentLamports:'2000000',minimumReserveLamports:'900000'};
 const two=await Promise.all([reserveBuy(storage,evidence,now),reserveBuy(storage,evidence,now)]);
 assert.equal(two.filter(x=>x.reserved).length,1);
 const id=two.find(x=>x.reserved).orderId;
