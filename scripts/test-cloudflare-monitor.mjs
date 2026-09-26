@@ -15,7 +15,7 @@ globalThis.fetch=async(url,options)=>{
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v5',intervalMs:20000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v6',intervalMs:20000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
  assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,20000);
