@@ -1,4 +1,5 @@
 import {evaluateBuy} from './order-controls.js';
+const MAX_U64=18446744073709551615n;
 
 // One Durable Object per account serializes admission. Only a server component
 // that fetched the evidence itself may call these methods. Never map untrusted
@@ -60,14 +61,21 @@ export async function markFinalized(storage,orderId,signature,status){
 // A full-balance exit is the only sell shape admitted for the first canary.
 // The caller must obtain the token account balance and transaction evidence
 // independently; this reservation only serializes the account state.
-export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBalance,verifiedBalance,consentVerified,killSwitch},now=Date.now()){
+export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBalance,verifiedBalance,ownerVerified,
+  consentVerified,signerPolicyVerified,fullTransactionVerified,simulationPassed,quoteAt,minSolOutLamports,
+  executionEnabled,killSwitch},now=Date.now()){
   if(!storage?.transaction)throw Error('Durable account storage required');
   if(!/^[A-Za-z0-9:_-]{1,128}$/.test(accountId||'')||
     !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint||'')||
     !/^[0-9a-f-]{36}$/.test(buyOrderId||'')||
     !/^[1-9]\d{0,38}$/.test(rawBalance||'')||
-    verifiedBalance!==true||consentVerified!==true||killSwitch!==false||
-    !Number.isSafeInteger(now)||now<1)return {reserved:false,reason:'sell_evidence_unverified'};
+    !/^[1-9]\d{0,19}$/.test(minSolOutLamports||'')||
+    verifiedBalance!==true||ownerVerified!==true||consentVerified!==true||
+    signerPolicyVerified!==true||fullTransactionVerified!==true||simulationPassed!==true||
+    executionEnabled!==true||killSwitch!==false||
+    !Number.isSafeInteger(quoteAt)||quoteAt>now||now-quoteAt>5000||
+    !Number.isSafeInteger(now)||now<1||BigInt(minSolOutLamports)>MAX_U64||BigInt(rawBalance)>MAX_U64)
+    return {reserved:false,reason:'sell_evidence_unverified'};
   return storage.transaction(async txn=>{
     const buy=await txn.get('order:'+buyOrderId);
     if(!buy||buy.accountId!==accountId||buy.mint!==mint||buy.state!=='confirmed')
