@@ -1,8 +1,8 @@
 # Scope: free-tier background monitor candidate
 
-This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target a six-second interval with no browser open. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
+This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target ten seconds when healthy and twenty seconds after provider throttling, with no browser open. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and private health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
 
-**Status: built and tested locally; not deployed or verified on Cloudflare.** It is an observation scheduler, not a completed live trading engine. Timing is a target, not a guaranteed execution deadline.
+**Status: deployed and started on 25 September 2026; browser-independent ticks observed. Pump rate limiting blocks reliable ten-second coverage.** It is an observation scheduler, not a completed live trading engine. Timing is a target, not a guaranteed execution deadline.
 
 ## Account and deployment
 
@@ -17,18 +17,20 @@ npx wrangler secret put SCOPE_MONITOR_SECRET --config monitor/cloudflare/wrangle
 npx wrangler secret put MONITOR_CONTROL_TOKEN --config monitor/cloudflare/wrangler.jsonc
 ```
 
-Deployment is stopped by default. The cron watchdog does not activate it. An authenticated POST to `/start` schedules checks; POST `/stop` persists the stopped state; GET `/health` returns recent success/failure. Administrative clients must supply `Authorization: Bearer <control token>` securely. Never expose the control token to the public website.
+Deployment is stopped by default. The cron watchdog does not activate it. An authenticated POST to `/start` schedules checks; POST `/stop` persists the stopped state; GET `/health` returns recent success/failure. Administrative clients must supply `Authorization: Bearer <control token>` securely. Never expose the control token to the public website. Public GET `/status` exposes only sanitized operational health, 429 count, check counts and longest gap; it never returns callers, tokens or wallet data. Its counters start when this version is deployed and cannot be interpreted as the chance of catching a call on the first scan.
 
 ## Required service access
 
-The current Scope Site is owner-private. The external monitor cannot use the owner's browser login as service access. The current connector exposes no permanent machine-access credential. This must be resolved through a supported service-access mechanism or an explicitly approved public Site release before start. Do not make the Site public as a side effect of deploying the monitor. A public Site still requires HMAC verification on monitor ticks and Privy authentication/ownership checks on account routes. Review public research/resource endpoints before opening the Site.
+The Scope Site is currently public, as independently verified during deployment. Monitor ticks still require a timestamped HMAC signature. Account routes require Privy authentication and wallet ownership. Start, stop and health require the separate monitor administrator token. No owner browser token is stored by this service.
+
+On provider HTTP 429 the scheduler persists a cooldown: at least 60 seconds, increasing to 15 minutes on consecutive throttles, or longer when the provider explicitly requests it (up to one day). The watchdog and stop/start preserve this deadline. Health remains unhealthy during failed checks. After recovery, the target is twenty seconds until 30 minutes of successful checks, when it cautiously tries ten seconds again. A subsequent 429 returns it to twenty seconds. This protects the provider; it does not guarantee callout coverage during an outage.
 
 ## Free-tier estimate, checked 25 September 2026
 
-For one six-second scheduler:
+For one ten-second scheduler:
 
-- 14,400 alarm invocations/day plus 1,440 watchdog calls/day and occasional administrator requests.
-- About 28,800 application writes/day for the next alarm and the health record, plus platform metadata/administrative writes.
+- 10,800 alarm invocations/day plus 1,440 watchdog calls/day and occasional administrator requests.
+- About 21,600 application writes/day for the next alarm and the health record, plus platform metadata/administrative writes.
 - A conservative continuously-active single-object calculation is 0.128 GB × 86,400 seconds = 11,059.2 GB-seconds/day. Actual platform accounting must be measured.
 
 Published Durable Object free allowances are 100,000 requests/day, 13,000 GB-seconds/day and 100,000 SQLite rows written/day. These estimates suggest a **single observation scheduler could fit**, not that the full Scope app or hundreds of active users will be free. Other objects, control traffic, retries, Site database reads/writes, Pump provider traffic, wallet login and Solana RPC have separate usage. Free limits stop operations when exhausted. Alarms are at-least-once and can be delayed/retried.
@@ -50,11 +52,3 @@ Sources:
 - https://developers.cloudflare.com/durable-objects/platform/pricing/
 - https://developers.cloudflare.com/durable-objects/api/alarms/
 - https://developers.cloudflare.com/workers/platform/pricing/
-
-## Cloudflare dashboard build settings
-
-Connect `friskySacs18/ScatterScope`, production branch `main`, to Worker `scope-background-monitor`. Set root directory to `monitor/cloudflare`, leave the build command blank, and use deploy command `npx wrangler deploy`. Disable preview builds for this observation service.
-
-With that root directory, do not repeat `monitor/cloudflare` in the deploy command's config path. If the root directory remains `/`, use `npx wrangler deploy --config monitor/cloudflare/wrangler.jsonc` instead.
-
-Verify a fresh build from the connected repository: a dashboard-created Worker version alone does not prove this source was deployed. An unauthenticated GET `/health` should return HTTP 401 with `Monitor administrator authentication required`; this proves the route is serving, not that monitoring is enabled or healthy.
