@@ -46,7 +46,7 @@ const uncertain=store();let attempts=0;const failed={...args,storage:uncertain,s
 assert.equal((await executeReservedOrder(failed)).state,'signing_unknown');await executeReservedOrder(failed);assert.equal(attempts,1);
 await assert.rejects(executeReservedOrder({...args,storage:store(),prepared:{...prepared,quoteAt:now-6000}}),/freshness/);
 
-const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'tnfa7qf8t1i0s5hsqmw5yexy'};
+const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'q10y2ou2bjs4omi4w7oi98lh'};
 let delegated=true,signRequests=0;
 const client={wallets:()=>({get:async()=>({id:walletId,address:wallet,chain_type:'solana',archived_at:null,additional_signers:delegated?[{signer_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,override_policy_ids:[env.SCOPE_PRIVY_POLICY_ID]}]:[]}),solana:()=>({signTransaction:async(id,input)=>{signRequests++;assert.equal(id,walletId);assert.equal(input.idempotency_key,orderId);assert.equal(input.transaction,unsigned);return {encoding:'base64',signed_transaction:signed}}})})};
 const goodPolicy={id:env.SCOPE_PRIVY_POLICY_ID,chain_type:'solana',owner_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,rules:[

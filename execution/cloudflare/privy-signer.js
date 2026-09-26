@@ -4,7 +4,7 @@ const APP_ID='cmuejmq9g00eg0cla13182nah';
 const ID=/^[a-z0-9]{24}$/;
 const PUMP_PROGRAMS=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
 const QUORUM_ID='kzp9n6z4hxygbdqs4sf3dprc';
-const POLICY_ID='tnfa7qf8t1i0s5hsqmw5yexy';
+const POLICY_ID='q10y2ou2bjs4omi4w7oi98lh';
 
 export function signerConfiguration(env={}){
   const required=['PRIVY_APP_SECRET','SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM','SCOPE_PRIVY_SIGNER_QUORUM_ID','SCOPE_PRIVY_POLICY_ID'];
