@@ -17,14 +17,14 @@ export function evaluateBuy(evidence, now=Date.now()){
   if(!Number.isSafeInteger(evidence.quoteAt)||evidence.quoteAt>now||now-evidence.quoteAt>5000||
      !Number.isFinite(evidence.marketCapUsd)||evidence.marketCapUsd<0||evidence.marketCapAllowed!==true)return block('quote_unverified');
   if(evidence.rpcHealthy!==true||evidence.signerPolicyVerified!==true||evidence.fullTransactionVerified!==true||evidence.simulationPassed!==true)return block('execution_prerequisite_unverified');
-  let amount,dailyCap,dailyReserved,balance,fees;
+  let amount,dailyCap,dailyReserved,balance,fees,rent,reserve;
   try{
-    for(const name of ['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports']){
+    for(const name of ['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports','rentLamports','minimumReserveLamports']){
       if(!/^(0|[1-9]\d{0,19})$/.test(evidence[name]))return block('invalid_budget');
     }
-    [amount,dailyCap,dailyReserved,balance,fees]=['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports'].map(k=>BigInt(evidence[k]));
+    [amount,dailyCap,dailyReserved,balance,fees,rent,reserve]=['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports','rentLamports','minimumReserveLamports'].map(k=>BigInt(evidence[k]));
   }catch{return block('invalid_budget')}
-  if(amount<1000000n||amount>MAX_U64||dailyCap>MAX_U64||dailyReserved>dailyCap||fees>MAX_U64||
-     amount+dailyReserved>dailyCap||amount+fees>balance)return block('budget_exceeded');
+  if(amount<1000000n||amount>MAX_U64||dailyCap>MAX_U64||dailyReserved>dailyCap||fees>MAX_U64||rent>MAX_U64||reserve>MAX_U64||
+     amount+dailyReserved>dailyCap||amount+fees+rent+reserve>balance)return block('budget_exceeded');
   return {allowed:true,reason:null,reservationLamports:amount.toString()};
 }
