@@ -2,7 +2,7 @@
 const INTERVAL=20000;
 const SLOW_INTERVAL=30000;
 const RECOVER_AFTER=30*60*1000;
-const BUILD='adaptive-feed-metrics-v5';
+const BUILD='adaptive-feed-metrics-v6';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -81,7 +81,9 @@ export class ScopeMonitor {
         const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(this.env.SCOPE_MONITOR_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
         const digest=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(at+'.'+body));
         const signature=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
-        const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','x-scope-timestamp':String(at),'x-scope-signature':signature},body,redirect:'manual',signal:AbortSignal.timeout(5500)});
+        // Scope bounds each parallel Pump read to 5s. Leave time for the
+        // database heartbeat and Worker-to-Worker network before canceling.
+        const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','x-scope-timestamp':String(at),'x-scope-signature':signature},body,redirect:'manual',signal:AbortSignal.timeout(9000)});
         httpStatus=response.status;
         if(response.ok){const raw=await response.text();if(raw.length>4096)throw Error('Oversized response');const data=JSON.parse(raw);ok=data.checked===true&&data.executionEnabled===false;callerCount=Number.isSafeInteger(data.callerCount)?data.callerCount:null;}
         error=ok?null:[301,302,303,307,308,401,403].includes(httpStatus)?'Scope service access is not configured':'Scope monitor check failed';
