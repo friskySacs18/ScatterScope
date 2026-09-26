@@ -56,3 +56,28 @@ export async function markFinalized(storage,orderId,signature,status){
     await txn.put(key,{...order,state:status.err===null?'confirmed':'failed'});return true;
   });
 }
+
+// A full-balance exit is the only sell shape admitted for the first canary.
+// The caller must obtain the token account balance and transaction evidence
+// independently; this reservation only serializes the account state.
+export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBalance,verifiedBalance,consentVerified,killSwitch},now=Date.now()){
+  if(!storage?.transaction)throw Error('Durable account storage required');
+  if(!/^[A-Za-z0-9:_-]{1,128}$/.test(accountId||'')||
+    !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint||'')||
+    !/^[0-9a-f-]{36}$/.test(buyOrderId||'')||
+    !/^[1-9]\d{0,38}$/.test(rawBalance||'')||
+    verifiedBalance!==true||consentVerified!==true||killSwitch!==false||
+    !Number.isSafeInteger(now)||now<1)return {reserved:false,reason:'sell_evidence_unverified'};
+  return storage.transaction(async txn=>{
+    const buy=await txn.get('order:'+buyOrderId);
+    if(!buy||buy.accountId!==accountId||buy.mint!==mint||buy.state!=='confirmed')
+      return {reserved:false,reason:'settled_buy_required'};
+    const key='sell:'+mint;
+    if(await txn.get(key))return {reserved:false,reason:'sell_already_reserved'};
+    const orderId=crypto.randomUUID();
+    await txn.put('order:'+orderId,{id:orderId,accountId,mint,buyOrderId,amountRaw:rawBalance,
+      side:'sell',state:'reserved',createdAt:now,signature:null});
+    await txn.put(key,orderId);
+    return {reserved:true,orderId};
+  });
+}
