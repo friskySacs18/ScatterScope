@@ -24,12 +24,14 @@ const keys=side=>{
   list[n-1]=pump;
   return list;
 };
-function transaction(side,{amount=1200000n,limit=3000000n,extra=false}={}){
+function transaction(side,{amount=1200000n,limit=3000000n,extra=false,createAta=false,ataOwner=wallet,ataMint=mint,ataToken=token,duplicateAta=false}={}){
   const data=Buffer.alloc(24);
   createHash('sha256').update('global:'+side+'_v2').digest().copy(data,0,0,8);
   data.writeBigUInt64LE(amount,8);data.writeBigUInt64LE(limit,16);
   const trade=new TransactionInstruction({programId:pump,keys:keys(side).map(pubkey=>({pubkey,isSigner:pubkey.equals(wallet),isWritable:true})),data});
-  const instructions=extra?[trade,SystemProgram.transfer({fromPubkey:wallet,toPubkey:arbitrary(30),lamports:1})]:[trade];
+  const destination=derived([ataOwner.toBuffer(),ataToken.toBuffer(),ataMint.toBuffer()],ata);
+  const create=new TransactionInstruction({programId:ata,keys:[wallet,destination,ataOwner,ataMint,SystemProgram.programId,ataToken].map(pubkey=>({pubkey,isSigner:pubkey.equals(wallet),isWritable:true})),data:Buffer.from([1])});
+  const instructions=[...(createAta?[create]:[]),...(duplicateAta?[create]:[]),trade,...(extra?[SystemProgram.transfer({fromPubkey:wallet,toPubkey:arbitrary(30),lamports:1})]:[])];
   const message=new TransactionMessage({payerKey:wallet,recentBlockhash:arbitrary(31).toBase58(),instructions}).compileToV0Message();
   return Buffer.from(new VersionedTransaction(message).serialize()).toString('base64');
 }
@@ -39,5 +41,12 @@ for(const side of ['buy','sell']){
   assert.equal(inspectPumpV2Transaction(encoded,{...evidence,mint:arbitrary(99).toBase58()}).valid,false);
   assert.equal(inspectPumpV2Transaction(encoded,{...evidence,limitLamports:'3000001'}).valid,false);
   assert.equal(inspectPumpV2Transaction(transaction(side,{extra:true}),evidence).reason,'unexpected_program');
+  if(side==='buy'){
+    assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true}),evidence).valid,true);
+    assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true,ataOwner:arbitrary(77)}),evidence).reason,'unexpected_ata_accounts');
+    assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true,ataMint:arbitrary(78)}),evidence).reason,'unexpected_ata_accounts');
+    assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true,ataToken:spl}),evidence).reason,'ata_trade_mismatch');
+    assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true,duplicateAta:true}),evidence).reason,'unexpected_ata_instruction');
+  }else assert.equal(inspectPumpV2Transaction(transaction(side,{createAta:true}),evidence).reason,'unexpected_ata_instruction');
 }
-console.log('Pump v2 inspection verifies exact signer, mint, SOL quote, trade data and rejects extra transfers');
+console.log('Pump v2 inspection verifies signer, mint, trade limits and one matching token-account create; extra transfers and mismatched accounts are rejected');
