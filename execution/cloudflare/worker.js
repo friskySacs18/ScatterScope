@@ -1,13 +1,12 @@
-// Independent execution host bootstrap. Optional RPC can prepare an unsigned
-// trade for inspection, but no signer or broadcast route exists. Every
-// financial request fails closed until the full execution pipeline is audited.
+// Independent order host. Admission, wallet authority, verified history and
+// signing policy must all pass before the guarded execution path is reachable.
 import {Connection} from '@solana/web3.js';
 import {preparePumpCanaryBuy} from './pump-canary-build.js';
 import {serviceConfiguration,operatorConfiguration} from './service-config.js';
 import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 
-const BUILD='executor-foundation-v5';
+const BUILD='executor-foundation-v6';
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const page=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scope trade preflight</title><style>body{font:16px system-ui;background:#11151d;color:#f4f7ff;max-width:500px;margin:32px auto;padding:18px;line-height:1.5}label{display:block;margin:18px 0 7px}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:10px;border:1px solid #8894ae;font:inherit}button{background:#c6fb78;border:0;margin-top:22px;font-weight:700}p,small{color:#b5bfd1}output{display:block;white-space:pre-wrap;margin-top:20px}</style><h1>Unsigned trade check</h1><p>Checks one 0.002 SOL Pump buy against current chain state. This page cannot sign, submit, or enable orders.</p><form id="preflight" autocomplete="off"><label for="token">Operator token</label><input id="token" type="password" autocomplete="off" required><label for="wallet">Your Scope wallet address</label><input id="wallet" spellcheck="false" autocapitalize="off" required><label for="mint">Pump token mint address</label><input id="mint" spellcheck="false" autocapitalize="off" required><button>Check unsigned trade</button></form><output id="result" role="status"></output><script src="/canary/ui.js" defer></script></html>`;
 const pageScript=`const form=document.querySelector('#preflight'),output=document.querySelector('#result');form.addEventListener('submit',async event=>{event.preventDefault();const token=document.querySelector('#token').value.trim(),wallet=document.querySelector('#wallet').value.trim(),mint=document.querySelector('#mint').value.trim();document.querySelector('#token').value='';output.textContent='Checking current chain state…';form.querySelector('button').disabled=true;try{const response=await fetch('/canary/prepare',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({wallet,mint}),cache:'no-store'});const result=await response.json();output.textContent=response.ok?'Unsigned trade simulated. Maximum spend: '+(Number(result.maximumSpendLamports)/1e9).toFixed(6)+' SOL. Token amount (raw): '+result.tokenAmountRaw+'. Simulated compute units: '+result.simulationUnits+'. No transaction was signed or sent.':response.status===401?'The token does not match the deployed CANARY_PREPARE_TOKEN runtime secret.':result.error||'Preflight unavailable.'}catch{output.textContent='Network check failed; no transaction was sent.'}finally{form.querySelector('button').disabled=false}});`;
@@ -31,7 +30,7 @@ export default {
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
       return reply({service:'scope-order-executor',build:BUILD,executionEnabled:config.executionEnabled,ordersSupported:true,
-        orderPipelineImplemented:true,orderContextConfigured:!!env?.ORDER_CONTEXT,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
+        orderPipelineImplemented:true,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,blockers:config.blockers,

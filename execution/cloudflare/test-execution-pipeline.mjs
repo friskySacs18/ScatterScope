@@ -5,7 +5,7 @@ import {PUMP_SDK} from '@pump-fun/pump-sdk';
 import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
 import {verifySignedTransaction} from './signed-transaction.js';
 import {verifySettlement} from './settlement.js';
-import {createPrivySigner} from './privy-signer.js';
+import {createPrivySigner,verifiedSigningPolicy} from './privy-signer.js';
 
 const pair=Keypair.fromSeed(Uint8Array.from({length:32},(_,i)=>i+1));
 const wallet=pair.publicKey.toBase58(),mint=Keypair.fromSeed(Uint8Array.from({length:32},(_,i)=>i+33)).publicKey.toBase58();
@@ -46,13 +46,22 @@ const uncertain=store();let attempts=0;const failed={...args,storage:uncertain,s
 assert.equal((await executeReservedOrder(failed)).state,'signing_unknown');await executeReservedOrder(failed);assert.equal(attempts,1);
 await assert.rejects(executeReservedOrder({...args,storage:store(),prepared:{...prepared,quoteAt:now-6000}}),/freshness/);
 
-const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'b'.repeat(24),SCOPE_PRIVY_POLICY_ID:'c'.repeat(24)};
+const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'tnfa7qf8t1i0s5hsqmw5yexy'};
 let delegated=true,signRequests=0;
 const client={wallets:()=>({get:async()=>({id:walletId,address:wallet,chain_type:'solana',archived_at:null,additional_signers:delegated?[{signer_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,override_policy_ids:[env.SCOPE_PRIVY_POLICY_ID]}]:[]}),solana:()=>({signTransaction:async(id,input)=>{signRequests++;assert.equal(id,walletId);assert.equal(input.idempotency_key,orderId);assert.equal(input.transaction,unsigned);return {encoding:'base64',signed_transaction:signed}}})})};
-const ownerFetch=async()=>Response.json({id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
+const goodPolicy={id:env.SCOPE_PRIVY_POLICY_ID,chain_type:'solana',owner_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,rules:[
+  {action:'ALLOW',method:'signTransaction',conditions:[{field_source:'solana_program_instruction',field:'programId',operator:'in',value:['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL']}]},
+  {action:'ALLOW',method:'signTransaction',conditions:[{field_source:'solana_system_program_instruction',field:'Transfer.lamports',operator:'lte',value:'10000000'}]}]};
+assert.equal(verifiedSigningPolicy(goodPolicy),true);
+assert.equal(verifiedSigningPolicy({...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}),false);
+assert.equal(verifiedSigningPolicy({...goodPolicy,rules:[...goodPolicy.rules,{action:'ALLOW',method:'*',conditions:[]}]}),false);
+const ownerFetch=async url=>Response.json(url.includes('/policies/')?goodPolicy:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
 const sign=createPrivySigner(env,{client,fetcher:ownerFetch});
 assert.equal(await sign({order,transaction:unsigned}),signed);delegated=false;
 await assert.rejects(sign({order,transaction:unsigned}),/revoked/);assert.equal(signRequests,1);
 const wrongOwner=createPrivySigner(env,{client,fetcher:async()=>Response.json({id:accountId,linked_accounts:[]})});
 await assert.rejects(wrongOwner({order,transaction:unsigned}),/owner mismatch/);assert.equal(signRequests,1);
+delegated=true;
+const wrongPolicy=createPrivySigner(env,{client,fetcher:async url=>Response.json(url.includes('/policies/')?{...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]})});
+await assert.rejects(wrongPolicy({order,transaction:unsigned}),/policy incompatible/);assert.equal(signRequests,1);
 console.log('PASS: 200 duplicate requests, durable-before-send, signer uncertainty, altered bytes/signatures, expiry, revocation, account ownership, finalized balance reconciliation');

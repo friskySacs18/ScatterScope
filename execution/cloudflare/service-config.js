@@ -12,7 +12,7 @@ export function serviceConfiguration(env={}){
   try{rpcEndpoint(env.RPC_URL);rpcConfigured=true}catch{}
   const operator=operatorConfiguration(env),signer=signerConfiguration(env);
   const serviceTokenConfigured=typeof env.ORDER_SERVICE_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_SERVICE_TOKEN);
-  const contextConfigured=!!env.ORDER_CONTEXT?.fetch,journalConfigured=!!env.ACCOUNT_ORDERS;
+  const contextConfigured=!!env.ORDER_CONTEXT?.fetch||typeof env.ORDER_CONTEXT_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_CONTEXT_TOKEN),journalConfigured=!!env.ACCOUNT_ORDERS;
   const executionEnabled=rpcConfigured&&signer.configured&&serviceTokenConfigured&&contextConfigured&&journalConfigured&&env.SCOPE_EXECUTION_ENABLED==='true'&&env.SCOPE_ORDER_KILL_SWITCH==='false';
   return {rpcConfigured,operator,signer,canaryPreparationConfigured:rpcConfigured&&operator.configured,
     journalConfigured,contextConfigured,serviceTokenConfigured,executionEnabled,

@@ -4,13 +4,17 @@ import {preparePumpCanaryBuy,preparePumpFullSell} from './pump-canary-build.js';
 import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
 import {createPrivySigner} from './privy-signer.js';
 
-// ORDER_CONTEXT is a private service binding, never a URL or user JSON.
-// It owns verified account/rule/history/market-cap evidence. Until that
-// integration exists this executor cannot accept any buy or sell job.
-export async function readOrderContext(env,job,side){
-  if(!env.ORDER_CONTEXT?.fetch)throw Error('Verified order context is not connected');
-  const response=await env.ORDER_CONTEXT.fetch(new Request('https://context/'+side,{method:'POST',
-    headers:{'content-type':'application/json'},body:JSON.stringify(job)}));
+// A private binding, or an authenticated, fixed Scope origin, owns context.
+// Browser input cannot supply evidence, credentials or a destination URL.
+export async function readOrderContext(env,job,side,fetcher=fetch){
+  const binding=env.ORDER_CONTEXT?.fetch;
+  const token=env.ORDER_CONTEXT_TOKEN;
+  if(!binding&&!(typeof token==='string'&&/^[\x21-\x7e]{32,256}$/.test(token)))throw Error('Verified order context is not connected');
+  const body=binding?JSON.stringify(job):JSON.stringify({...job,side});
+  const url=binding?'https://context/'+side:'https://scopetrade.live/api/automation/order-context';
+  const response=await (binding?env.ORDER_CONTEXT.fetch(new Request(url,{method:'POST',
+    headers:{'content-type':'application/json'},body})):fetcher(url,{method:'POST',
+    headers:{'content-type':'application/json',authorization:'Bearer '+token},body,signal:AbortSignal.timeout(5000)}));
   if(!response.ok)throw Error('Order context unavailable');
   const context=await response.json();
   if(context.accountId!==job.accountId||context.signalId!==job.signalId||context.allowed!==true||

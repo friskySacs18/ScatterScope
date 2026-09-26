@@ -3,7 +3,7 @@ import worker from './worker.js';
 import {readOrderContext,runAccountOrder} from './account-executor.js';
 import {serviceConfiguration} from './service-config.js';
 const token='service-test-token-that-is-not-a-real-secret';
-const base={RPC_URL:'https://api.mainnet-beta.solana.com/',ORDER_SERVICE_TOKEN:token,PRIVY_APP_SECRET:'test',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'a'.repeat(24),SCOPE_PRIVY_POLICY_ID:'b'.repeat(24),SCOPE_EXECUTION_ENABLED:'true',SCOPE_ORDER_KILL_SWITCH:'false'};
+const base={RPC_URL:'https://api.mainnet-beta.solana.com/',ORDER_SERVICE_TOKEN:token,PRIVY_APP_SECRET:'test',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'tnfa7qf8t1i0s5hsqmw5yexy',SCOPE_EXECUTION_ENABLED:'true',SCOPE_ORDER_KILL_SWITCH:'false'};
 let forwarded=0;
 const ACCOUNT_ORDERS={idFromName:id=>id,get:()=>({fetch:async request=>{forwarded++;return Response.json({received:await request.json()})}})};
 const ORDER_CONTEXT={fetch:async()=>Response.json({})};
@@ -17,6 +17,15 @@ assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signa
 assert.equal(forwarded,1);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).executionEnabled,true);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,RPC_URL:'https://untrusted.example/'}).executionEnabled,false);
+const contextToken='private-context-credential-just-for-this-test';
+assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT_TOKEN:contextToken}).contextConfigured,true);
+let calledUrl='';
+await assert.rejects(readOrderContext({ORDER_CONTEXT_TOKEN:contextToken},{accountId:'did:privy:account123',signalId:'call-1'},'buy',async(url,options)=>{
+  calledUrl=url;assert.deepEqual(JSON.parse(options.body),{accountId:'did:privy:account123',signalId:'call-1',side:'buy'});
+  assert.equal(options.headers.authorization,'Bearer '+contextToken);
+  return Response.json({allowed:false,blockers:['first_call_history_unverified']});
+}),/rejected/);
+assert.equal(calledUrl,'https://scopetrade.live/api/automation/order-context');
 await assert.rejects(readOrderContext({}, {accountId:'did:privy:account123',signalId:'call-1'},'buy'),/not connected/);
 await assert.rejects(readOrderContext({ORDER_CONTEXT:{fetch:async()=>Response.json({allowed:true,accountId:'did:privy:someoneelse',signalId:'call-1',walletId:'a'.repeat(24),revision:'1',evidence:{}})}},{accountId:'did:privy:account123',signalId:'call-1'},'buy'),/rejected/);
 assert.equal((await runAccountOrder({env:{...base,SCOPE_EXECUTION_ENABLED:'false'},job:{},side:'buy',connection:{},storage:{}})).reason,'execution_disabled');
