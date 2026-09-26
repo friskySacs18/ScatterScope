@@ -12,8 +12,15 @@ const unsigned=new VersionedTransaction(tx.message),unsignedEncoded=Buffer.from(
 let simulations=0;
 const simulation=async(url,init)=>{simulations++;const body=JSON.parse(init.body);assert.equal(body.method,'simulateTransaction');assert.equal(body.params[0],unsignedEncoded);assert.equal(body.params[1].sigVerify,false);assert.equal(body.params[1].replaceRecentBlockhash,false);return Response.json({jsonrpc:'2.0',id:1,result:{value:{err:null,unitsConsumed:78000}}})};
 assert.deepEqual(await simulateUnsignedTrade({encoded:unsignedEncoded,rpcUrl,fetcher:simulation}),{passed:true,unitsConsumed:78000});
+const dedicated='https://mainnet.helius-rpc.com/?api-key='+('a'.repeat(32));
+assert.deepEqual(await simulateUnsignedTrade({encoded:unsignedEncoded,rpcUrl:dedicated,fetcher:async(url,init)=>{
+  assert.equal(url,dedicated);return simulation(url,init)}}),{passed:true,unitsConsumed:78000});
+for(const bad of ['https://mainnet.helius-rpc.com/?api-key=x','https://mainnet.helius-rpc.com/?api-key='+('a'.repeat(32))+'&other=1',
+  'https://mainnet.helius-rpc.com.evil.example/?api-key='+('a'.repeat(32)),
+  'https://api.mainnet-beta.solana.com/?api-key='+('a'.repeat(32))])
+  await assert.rejects(simulateUnsignedTrade({encoded:unsignedEncoded,rpcUrl:bad,fetcher:simulation}),/Unapproved/);
 await assert.rejects(simulateUnsignedTrade({encoded,rpcUrl,fetcher:simulation}),/unsigned wallet signature/);
-assert.equal(simulations,1,'Signed transactions never enter unsigned preflight');
+assert.equal(simulations,2,'Signed transactions never enter unsigned preflight');
 assert.equal((await simulateUnsignedTrade({encoded:unsignedEncoded,rpcUrl,fetcher:async()=>Response.json({jsonrpc:'2.0',id:1,result:{value:{err:{InstructionError:[0,'Custom']},unitsConsumed:1000}}})})).passed,false);
 await assert.rejects(simulateUnsignedTrade({encoded:unsignedEncoded,rpcUrl,fetcher:async()=>Response.json({jsonrpc:'2.0',id:1,result:{value:{err:null}}})}),/Incomplete/);
 let calls=0;
