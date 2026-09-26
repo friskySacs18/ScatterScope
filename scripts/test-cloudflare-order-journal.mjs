@@ -25,8 +25,12 @@ assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'confi
 assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'finalized',err:null}),true);
 assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'finalized',err:'different'}),false);
 assert.equal(values.get('mint:'+evidence.mint),id,'Finalized orders keep the once-per-mint purchase lock');
-const sell={accountId:evidence.accountId,mint:evidence.mint,buyOrderId:id,rawBalance:'1200000',verifiedBalance:true,consentVerified:true,killSwitch:false};
+const sell={accountId:evidence.accountId,mint:evidence.mint,buyOrderId:id,rawBalance:'1200000',verifiedBalance:true,
+ ownerVerified:true,consentVerified:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
+ quoteAt:now-500,minSolOutLamports:'1000000',executionEnabled:true,killSwitch:false};
 assert.equal((await reserveFullSell(storage,{...sell,verifiedBalance:false},now)).reason,'sell_evidence_unverified');
+assert.equal((await reserveFullSell(storage,{...sell,quoteAt:now-6000},now)).reason,'sell_evidence_unverified');
+assert.equal((await reserveFullSell(storage,{...sell,minSolOutLamports:'18446744073709551616'},now)).reason,'sell_evidence_unverified');
 assert.equal((await reserveFullSell(storage,{...sell,buyOrderId:crypto.randomUUID()},now)).reason,'settled_buy_required');
 const exits=await Promise.all([reserveFullSell(storage,sell,now),reserveFullSell(storage,sell,now)]);
 assert.equal(exits.filter(x=>x.reserved).length,1,'Concurrent exits cannot double-sell the same balance');
