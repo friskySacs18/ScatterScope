@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {reserveBuy,beginSigning,markBroadcast,markFinalized} from '../execution/cloudflare/order-journal.js';
+import {reserveBuy,beginSigning,markBroadcast,markFinalized,reserveFullSell} from '../execution/cloudflare/order-journal.js';
 
 const now=1790374650000;
 const values=new Map();let chain=Promise.resolve();
@@ -25,4 +25,15 @@ assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'confi
 assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'finalized',err:null}),true);
 assert.equal(await markFinalized(storage,id,signature,{confirmationStatus:'finalized',err:'different'}),false);
 assert.equal(values.get('mint:'+evidence.mint),id,'Finalized orders keep the once-per-mint purchase lock');
+const sell={accountId:evidence.accountId,mint:evidence.mint,buyOrderId:id,rawBalance:'1200000',verifiedBalance:true,consentVerified:true,killSwitch:false};
+assert.equal((await reserveFullSell(storage,{...sell,verifiedBalance:false},now)).reason,'sell_evidence_unverified');
+assert.equal((await reserveFullSell(storage,{...sell,buyOrderId:crypto.randomUUID()},now)).reason,'settled_buy_required');
+const exits=await Promise.all([reserveFullSell(storage,sell,now),reserveFullSell(storage,sell,now)]);
+assert.equal(exits.filter(x=>x.reserved).length,1,'Concurrent exits cannot double-sell the same balance');
+const sellId=exits.find(x=>x.reserved).orderId;
+assert.equal(await beginSigning(storage,sellId),true);
+assert.equal(await beginSigning(storage,sellId),false);
+assert.equal(await markBroadcast(storage,sellId,'4'.repeat(88)),true);
+assert.equal(await markFinalized(storage,sellId,'4'.repeat(88),{confirmationStatus:'finalized',err:null}),true);
+assert.equal(values.get('sell:'+evidence.mint),sellId,'Sell reservation remains locked after finalization');
 console.log('Serialized order reservation, budget, idempotence, signer uncertainty and finalization verified');
