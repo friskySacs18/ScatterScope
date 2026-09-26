@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@privy-io/node": "0.24.0",
     "@pump-fun/pump-sdk": "2.0.0",
     "@solana/web3.js": "1.99.0",
     "bn.js": "5.2.2",
@@ -9,5 +10,9 @@
   },
   "devDependencies": {
     "wrangler": "4.141.0"
+  },
+  "scripts": {
+    "test": "node --test test-execution-pipeline.mjs test-service-admission.mjs test-executor-preflight.mjs test-pump-canary-build.mjs test-pump-sell.mjs test-rpc-transport.mjs test-inspect-pump-v2.mjs test-pump-sdk-inspection.mjs ../../scripts/test-cloudflare-order-controls.mjs ../../scripts/test-cloudflare-order-journal.mjs",
+    "check:deploy": "wrangler deploy --dry-run"
   }
 }

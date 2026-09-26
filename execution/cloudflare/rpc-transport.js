@@ -2,7 +2,7 @@ import bs58 from 'bs58';
 import {VersionedTransaction} from '@solana/web3.js';
 
 const ADDRESS=/^[1-9A-HJ-NP-Za-km-z]{80,90}$/;
-function rpcEndpoint(input){
+export function rpcEndpoint(input){
   const url=new URL(input);
   const publicHost=['api.mainnet-beta.solana.com','api.mainnet.solana.com','solana-rpc.publicnode.com'].includes(url.hostname);
   const heliusHost=url.hostname==='mainnet.helius-rpc.com';
@@ -76,4 +76,10 @@ export async function finalizedStatus({signature,rpcUrl,fetcher=fetch}){
     if(value.confirmationStatus!=='finalized'||!Object.hasOwn(value,'err'))return {state:'pending'};
     return {state:value.err===null?'confirmed':'failed',status:value};
   }catch{return {state:'unknown'}}
+}
+
+export async function finalizedTransaction({signature,rpcUrl,fetcher=fetch}){
+  if(!ADDRESS.test(signature||''))throw Error('Invalid transaction signature');
+  return callRpc(rpcUrl,{method:'getTransaction',params:[signature,
+    {encoding:'base64',commitment:'finalized',maxSupportedTransactionVersion:0}]},fetcher);
 }

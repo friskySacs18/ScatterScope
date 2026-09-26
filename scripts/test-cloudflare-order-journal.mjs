@@ -32,6 +32,8 @@ assert.equal((await reserveFullSell(storage,{...sell,verifiedBalance:false},now)
 assert.equal((await reserveFullSell(storage,{...sell,quoteAt:now-6000},now)).reason,'sell_evidence_unverified');
 assert.equal((await reserveFullSell(storage,{...sell,minSolOutLamports:'18446744073709551616'},now)).reason,'sell_evidence_unverified');
 assert.equal((await reserveFullSell(storage,{...sell,buyOrderId:crypto.randomUUID()},now)).reason,'settled_buy_required');
+assert.equal((await reserveFullSell(storage,sell,now)).reason,'verified_buy_receipt_required');
+values.set('order:'+id,{...values.get('order:'+id),receipt:{state:'confirmed',tokenDeltaRaw:sell.rawBalance}});
 const exits=await Promise.all([reserveFullSell(storage,sell,now),reserveFullSell(storage,sell,now)]);
 assert.equal(exits.filter(x=>x.reserved).length,1,'Concurrent exits cannot double-sell the same balance');
 const sellId=exits.find(x=>x.reserved).orderId;
@@ -41,3 +43,4 @@ assert.equal(await markBroadcast(storage,sellId,'4'.repeat(88)),true);
 assert.equal(await markFinalized(storage,sellId,'4'.repeat(88),{confirmationStatus:'finalized',err:null}),true);
 assert.equal(values.get('sell:'+evidence.mint),sellId,'Sell reservation remains locked after finalization');
 console.log('Serialized order reservation, budget, idempotence, signer uncertainty and finalization verified');
+

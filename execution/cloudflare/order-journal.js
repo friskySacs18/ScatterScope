@@ -20,7 +20,7 @@ export async function reserveBuy(storage,evidence,now=Date.now()){
     const amount=BigInt(check.reservationLamports);
     if(reserved+amount>BigInt(evidence.dailyCapLamports))return {reserved:false,reason:'daily_budget_exceeded'};
     const orderId=crypto.randomUUID();
-    const order={id:orderId,accountId:evidence.accountId,signalId:evidence.signalId,mint:evidence.mint,
+    const order={id:orderId,accountId:evidence.accountId,signalId:evidence.signalId,mint:evidence.mint,wallet:evidence.wallet,walletId:evidence.walletId||null,
       amountLamports:amount.toString(),state:'reserved',createdAt:now,signature:null};
     await txn.put('order:'+orderId,order);
     await txn.put(signalKey,orderId);
@@ -83,7 +83,9 @@ export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBala
     const key='sell:'+mint;
     if(await txn.get(key))return {reserved:false,reason:'sell_already_reserved'};
     const orderId=crypto.randomUUID();
-    await txn.put('order:'+orderId,{id:orderId,accountId,mint,buyOrderId,amountRaw:rawBalance,
+    if(!buy.receipt||buy.receipt.state!=='confirmed'||buy.receipt.tokenDeltaRaw!==rawBalance)
+      return {reserved:false,reason:'verified_buy_receipt_required'};
+    await txn.put('order:'+orderId,{id:orderId,accountId,mint,wallet:buy.wallet,walletId:buy.walletId||null,buyOrderId,amountRaw:rawBalance,
       side:'sell',state:'reserved',createdAt:now,signature:null});
     await txn.put(key,orderId);
     return {reserved:true,orderId};

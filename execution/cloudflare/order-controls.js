@@ -20,7 +20,7 @@ export function evaluateBuy(evidence, now=Date.now()){
   let amount,dailyCap,dailyReserved,balance,fees,rent,reserve;
   try{
     for(const name of ['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports','rentLamports','minimumReserveLamports']){
-      if(!/^(0|[1-9]\d{0,19})$/.test(evidence[name]))return block('invalid_budget');
+      if(typeof evidence[name]!=='string'||!/^(0|[1-9]\d{0,19})$/.test(evidence[name]))return block('invalid_budget');
     }
     [amount,dailyCap,dailyReserved,balance,fees,rent,reserve]=['maxLamports','dailyCapLamports','dailyReservedLamports','balanceLamports','maxFeeLamports','rentLamports','minimumReserveLamports'].map(k=>BigInt(evidence[k]));
   }catch{return block('invalid_budget')}
