@@ -1,8 +1,8 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
-const INTERVAL=10000;
-const SLOW_INTERVAL=20000;
+const INTERVAL=20000;
+const SLOW_INTERVAL=30000;
 const RECOVER_AFTER=30*60*1000;
-const BUILD='adaptive-feed-metrics-v4';
+const BUILD='adaptive-feed-metrics-v5';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -63,7 +63,7 @@ export class ScopeMonitor {
       if(this.enabled&&!this.busy&&await this.storage.getAlarm()===null)await this.storage.setAlarm(Math.max(Date.now()+1000,this.health.retryAt||0));
     }else if(path!=='/health')return json({error:'Not found'},404);
     const age=Date.now()-Number(this.health.lastSuccessAt||0);
-    return json({...this.health,enabled:this.enabled,healthy:this.enabled&&age>=0&&age<30000&&this.health.lastCheckOk===true,intervalMs:this.health.intervalMs||INTERVAL,executionEnabled:false});
+    return json({...this.health,enabled:this.enabled,healthy:this.enabled&&age>=0&&age<55000&&this.health.lastCheckOk===true,intervalMs:this.health.intervalMs||INTERVAL,executionEnabled:false});
   }
   async alarm(){
     await this.ready;
