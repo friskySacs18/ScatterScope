@@ -29,6 +29,25 @@ async function callRpc(url,request,fetcher){
   return body.result;
 }
 
+// This check runs before asking the owner to sign. The transaction must have
+// exactly one empty signature; simulation is evidence, not authorization.
+export async function simulateUnsignedTrade({encoded,rpcUrl,fetcher=fetch}){
+  rpcEndpoint(rpcUrl);
+  if(typeof encoded!=='string'||encoded.length>1800||!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))throw Error('Invalid unsigned transaction');
+  const bytes=Uint8Array.from(atob(encoded),x=>x.charCodeAt(0));
+  if(bytes.length<100||bytes.length>1232)throw Error('Invalid unsigned transaction');
+  const tx=VersionedTransaction.deserialize(bytes);
+  if(tx.signatures.length!==1||tx.signatures[0].length!==64||!tx.signatures[0].every(x=>x===0))
+    throw Error('Simulation requires exactly one unsigned wallet signature');
+  const result=await callRpc(rpcUrl,{method:'simulateTransaction',params:[encoded,
+    {encoding:'base64',sigVerify:false,replaceRecentBlockhash:false,commitment:'confirmed'}]},fetcher);
+  if(!result?.value||!Object.hasOwn(result.value,'err')||
+     !Number.isSafeInteger(result.value.unitsConsumed)||result.value.unitsConsumed<0)
+    throw Error('Incomplete trade simulation');
+  if(result.value.err!==null)return {passed:false,reason:'on_chain_simulation_failed'};
+  return {passed:true,unitsConsumed:result.value.unitsConsumed};
+}
+
 // Call only after an order journal has recorded the exact signature and its
 // irreversible broadcast state. Unknown responses must be reconciled before
 // any further action; never create another signed transaction for this order.
