@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
 import worker from './worker.js';
 import {readOrderContext,runAccountOrder} from './account-executor.js';
 import {serviceConfiguration} from './service-config.js';
 const token='service-test-token-that-is-not-a-real-secret';
-const base={RPC_URL:'https://api.mainnet-beta.solana.com/',ORDER_SERVICE_TOKEN:token,PRIVY_APP_SECRET:'test',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'q10y2ou2bjs4omi4w7oi98lh',SCOPE_EXECUTION_ENABLED:'true',SCOPE_ORDER_KILL_SWITCH:'false'};
+const {privateKey}=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+const base={RPC_URL:'https://api.mainnet-beta.solana.com/',ORDER_SERVICE_TOKEN:token,PRIVY_APP_SECRET:'test',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:privateKey.export({format:'der',type:'pkcs8'}).toString('base64'),SCOPE_PRIVY_SIGNER_QUORUM_ID:'l2kx7hvbz4qd9cj9jqsdaoj5',SCOPE_PRIVY_POLICY_ID:'qhtl0rqr7553234g6zb7dna2',SCOPE_EXECUTION_ENABLED:'true',SCOPE_ORDER_KILL_SWITCH:'false'};
 let forwarded=0;
 const ACCOUNT_ORDERS={idFromName:id=>id,get:()=>({fetch:async request=>{forwarded++;return Response.json({received:await request.json()})}})};
 const ORDER_CONTEXT={fetch:async()=>Response.json({})};

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
 import BN from 'bn.js';
 import {Keypair,PublicKey,VersionedTransaction,TransactionMessage} from '@solana/web3.js';
 import {PUMP_SDK} from '@pump-fun/pump-sdk';
@@ -46,22 +47,26 @@ const uncertain=store();let attempts=0;const failed={...args,storage:uncertain,s
 assert.equal((await executeReservedOrder(failed)).state,'signing_unknown');await executeReservedOrder(failed);assert.equal(attempts,1);
 await assert.rejects(executeReservedOrder({...args,storage:store(),prepared:{...prepared,quoteAt:now-6000}}),/freshness/);
 
-const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'-----BEGIN PRIVATE KEY-----test',SCOPE_PRIVY_SIGNER_QUORUM_ID:'kzp9n6z4hxygbdqs4sf3dprc',SCOPE_PRIVY_POLICY_ID:'q10y2ou2bjs4omi4w7oi98lh'};
+const {privateKey:signerTestKey,publicKey:signerTestPublic}=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:signerTestKey.export({format:'der',type:'pkcs8'}).toString('base64'),SCOPE_PRIVY_SIGNER_QUORUM_ID:'l2kx7hvbz4qd9cj9jqsdaoj5',SCOPE_PRIVY_POLICY_ID:'qhtl0rqr7553234g6zb7dna2'};
 let delegated=true,signRequests=0;
 const client={wallets:()=>({get:async()=>({id:walletId,address:wallet,chain_type:'solana',archived_at:null,additional_signers:delegated?[{signer_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,override_policy_ids:[env.SCOPE_PRIVY_POLICY_ID]}]:[]}),solana:()=>({signTransaction:async(id,input)=>{signRequests++;assert.equal(id,walletId);assert.equal(input.idempotency_key,orderId);assert.equal(input.transaction,unsigned);return {encoding:'base64',signed_transaction:signed}}})})};
 const goodPolicy={id:env.SCOPE_PRIVY_POLICY_ID,chain_type:'solana',owner_id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,rules:[
   {action:'ALLOW',method:'signTransaction',conditions:[{field_source:'solana_program_instruction',field:'programId',operator:'in',value:['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL']}]},
   {action:'ALLOW',method:'signTransaction',conditions:[{field_source:'solana_system_program_instruction',field:'Transfer.lamports',operator:'lte',value:'10000000'}]}]};
 assert.equal(verifiedSigningPolicy(goodPolicy),true);
+assert.equal(verifiedSigningPolicy({...goodPolicy,owner_id:null}),true,'Dashboard-created policies may have no resource owner');
+assert.equal(verifiedSigningPolicy({...goodPolicy,owner_id:'wrong-quorum'}),false);
 assert.equal(verifiedSigningPolicy({...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}),false);
 assert.equal(verifiedSigningPolicy({...goodPolicy,rules:[...goodPolicy.rules,{action:'ALLOW',method:'*',conditions:[]}]}),false);
-const ownerFetch=async url=>Response.json(url.includes('/policies/')?goodPolicy:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
+const quorum={id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,authorization_threshold:1,authorization_keys:[{public_key:signerTestPublic.export({format:'der',type:'spki'}).toString('base64')}]};
+const ownerFetch=async url=>Response.json(url.includes('/policies/')?goodPolicy:url.includes('/key_quorums/')?quorum:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
 const sign=createPrivySigner(env,{client,fetcher:ownerFetch});
 assert.equal(await sign({order,transaction:unsigned}),signed);delegated=false;
 await assert.rejects(sign({order,transaction:unsigned}),/revoked/);assert.equal(signRequests,1);
 const wrongOwner=createPrivySigner(env,{client,fetcher:async()=>Response.json({id:accountId,linked_accounts:[]})});
 await assert.rejects(wrongOwner({order,transaction:unsigned}),/owner mismatch/);assert.equal(signRequests,1);
 delegated=true;
-const wrongPolicy=createPrivySigner(env,{client,fetcher:async url=>Response.json(url.includes('/policies/')?{...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]})});
+const wrongPolicy=createPrivySigner(env,{client,fetcher:async url=>Response.json(url.includes('/policies/')?{...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}:url.includes('/key_quorums/')?quorum:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]})});
 await assert.rejects(wrongPolicy({order,transaction:unsigned}),/policy incompatible/);assert.equal(signRequests,1);
 console.log('PASS: 200 duplicate requests, durable-before-send, signer uncertainty, altered bytes/signatures, expiry, revocation, account ownership, finalized balance reconciliation');

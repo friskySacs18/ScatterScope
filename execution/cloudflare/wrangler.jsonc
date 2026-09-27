@@ -4,6 +4,10 @@
   "compatibility_date": "2026-09-25",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "vars": {
+    "SCOPE_PRIVY_SIGNER_QUORUM_ID": "l2kx7hvbz4qd9cj9jqsdaoj5",
+    "SCOPE_PRIVY_POLICY_ID": "qhtl0rqr7553234g6zb7dna2"
+  },
   "durable_objects": {
     "bindings": [{"name": "ACCOUNT_ORDERS", "class_name": "AccountOrderJournal"}]
   },

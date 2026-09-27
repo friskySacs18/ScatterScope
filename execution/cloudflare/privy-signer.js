@@ -1,17 +1,28 @@
 import {PrivyClient} from '@privy-io/node';
+import {createPrivateKey,createPublicKey} from 'node:crypto';
 
 const APP_ID='cmuejmq9g00eg0cla13182nah';
 const ID=/^[a-z0-9]{24}$/;
 const PUMP_PROGRAMS=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
-const QUORUM_ID='kzp9n6z4hxygbdqs4sf3dprc';
-const POLICY_ID='q10y2ou2bjs4omi4w7oi98lh';
+const QUORUM_ID='l2kx7hvbz4qd9cj9jqsdaoj5';
+const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
+
+function authorizationKey(value){
+  if(typeof value!=='string'||value!==value.trim())throw Error('Invalid authorization key');
+  const pem=value.startsWith('-----BEGIN PRIVATE KEY-----');
+  if(!pem&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(value))throw Error('Invalid authorization key');
+  const key=createPrivateKey(pem?value:{key:Buffer.from(value,'base64'),format:'der',type:'pkcs8'});
+  if(key.asymmetricKeyType!=='ec'||key.asymmetricKeyDetails?.namedCurve!=='prime256v1')throw Error('Authorization key must be P-256');
+  return {privateKey:key.export({format:'der',type:'pkcs8'}).toString('base64'),
+    publicKey:createPublicKey(key).export({format:'der',type:'spki'}).toString('base64')};
+}
 
 export function signerConfiguration(env={}){
   const required=['PRIVY_APP_SECRET','SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM','SCOPE_PRIVY_SIGNER_QUORUM_ID','SCOPE_PRIVY_POLICY_ID'];
   const missing=required.filter(key=>typeof env[key]!=='string'||!env[key].trim());
   const invalid=[];
   for(const key of ['SCOPE_PRIVY_SIGNER_QUORUM_ID','SCOPE_PRIVY_POLICY_ID'])if(env[key]&&!ID.test(env[key]))invalid.push(key);
-  if(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM&&!/-----BEGIN (?:EC )?PRIVATE KEY-----/.test(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM))invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM');
+  if(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM)try{authorizationKey(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM)}catch{invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM')}
   if(env.SCOPE_PRIVY_SIGNER_QUORUM_ID&&env.SCOPE_PRIVY_SIGNER_QUORUM_ID!==QUORUM_ID)invalid.push('SCOPE_PRIVY_SIGNER_QUORUM_ID');
   if(env.SCOPE_PRIVY_POLICY_ID&&env.SCOPE_PRIVY_POLICY_ID!==POLICY_ID)invalid.push('SCOPE_PRIVY_POLICY_ID');
   return {configured:missing.length===0&&invalid.length===0,missing,invalid};
@@ -21,7 +32,7 @@ export function signerConfiguration(env={}){
 // method used by this journal. Require the exact production signing method
 // and an exact allowlist before the wallet receives any signature request.
 export function verifiedSigningPolicy(policy,expectedPolicyId=POLICY_ID,expectedQuorumId=QUORUM_ID){
-  if(policy?.id!==expectedPolicyId||policy.chain_type!=='solana'||policy.owner_id!==expectedQuorumId||
+  if(policy?.id!==expectedPolicyId||policy.chain_type!=='solana'||(policy.owner_id!=null&&policy.owner_id!==expectedQuorumId)||
     !Array.isArray(policy.rules)||policy.rules.length!==2)return false;
   const [program,transfer]=policy.rules;
   if(program?.action!=='ALLOW'||program.method!=='signTransaction'||program.conditions?.length!==1||
@@ -37,6 +48,7 @@ export function verifiedSigningPolicy(policy,expectedPolicyId=POLICY_ID,expected
 // network timeout cannot erase the signature needed for reconciliation.
 export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
   if(!signerConfiguration(env).configured)throw Error('Privy signer configuration incomplete');
+  const key=authorizationKey(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM);
   const api=client||new PrivyClient({appId:APP_ID,appSecret:env.PRIVY_APP_SECRET,maxRetries:0,timeout:8000});
   return async function sign({order,transaction}){
     if(!ID.test(order.walletId||'')||!/^did:privy:[a-zA-Z0-9_-]{8,120}$/.test(order.accountId||'')||!order.id)throw Error('Verified wallet identity required');
@@ -49,12 +61,18 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
     const delegated=wallet.additional_signers?.find(x=>x.signer_id===env.SCOPE_PRIVY_SIGNER_QUORUM_ID);
     if(wallet.id!==order.walletId||wallet.address!==order.wallet||wallet.chain_type!=='solana'||wallet.archived_at!=null||
       delegated?.override_policy_ids?.length!==1||delegated.override_policy_ids[0]!==env.SCOPE_PRIVY_POLICY_ID)throw Error('Wallet delegation missing or revoked');
+    const quorumResponse=await fetcher('https://api.privy.io/v1/key_quorums/'+encodeURIComponent(env.SCOPE_PRIVY_SIGNER_QUORUM_ID),{headers,signal:AbortSignal.timeout(6000)});
+    if(!quorumResponse.ok)throw Error('Privy signer quorum unavailable');
+    const quorum=await quorumResponse.json();
+    if(quorum.id!==env.SCOPE_PRIVY_SIGNER_QUORUM_ID||quorum.authorization_threshold!==1||
+      quorum.authorization_keys?.length!==1||quorum.authorization_keys[0]?.public_key?.replace(/\s/g,'')!==key.publicKey)
+      throw Error('Signer private key does not match the registered quorum');
     const policyResponse=await fetcher('https://api.privy.io/v1/policies/'+encodeURIComponent(env.SCOPE_PRIVY_POLICY_ID),{headers,signal:AbortSignal.timeout(6000)});
     if(!policyResponse.ok||!verifiedSigningPolicy(await policyResponse.json(),env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID))
       throw Error('Privy signing policy incompatible or unavailable');
     const result=await api.wallets().solana().signTransaction(order.walletId,{
       transaction,idempotency_key:order.id,request_expiry:now()+15000,
-      authorization_context:{authorization_private_keys:[env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM]}
+      authorization_context:{authorization_private_keys:[key.privateKey]}
     });
     if(result.encoding!=='base64'||typeof result.signed_transaction!=='string')throw Error('Invalid signer response');
     return result.signed_transaction;
