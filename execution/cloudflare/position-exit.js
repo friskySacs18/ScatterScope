@@ -26,8 +26,11 @@ export function confirmedPosition({buyOrder,rules,now=Date.now()}){
   // conservative cash basis must not exceed the prepared maximum plus rent.
   if(cost>BigInt(buyOrder.amountLamports)+BigInt(buyOrder.prepared?.reservedRentLamports||'0')+BigInt(receipt.feeLamports||'0'))
     throw Error('Buy spend exceeds reserved amount');
+  const normalized=rules&&Object.hasOwn(rules,'profitPercent')?
+    fullExitRules({profit1Percent:rules.profitPercent,profit1Sell:rules.profitPercent==null?null:100,
+      profit2Percent:null,profit2Sell:null,stopPercent:rules.stopPercent}):fullExitRules(rules);
   return {state:'open',buyOrderId:buyOrder.id,wallet:buyOrder.wallet,mint:buyOrder.mint,
-    openedAt:buyOrder.settledAt,amountRaw:receipt.tokenDeltaRaw,costLamports:cost.toString(),rules:fullExitRules(rules)};
+    openedAt:buyOrder.settledAt,amountRaw:receipt.tokenDeltaRaw,costLamports:cost.toString(),rules:normalized};
 }
 
 export function fullExitTrigger(position,quote,{now=Date.now(),maxQuoteAgeMs=5000}={}){
