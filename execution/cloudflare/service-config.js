@@ -8,15 +8,18 @@ export function operatorConfiguration(env={}){
   return {configured:true,code:null,message:null};
 }
 export function serviceConfiguration(env={}){
+  // The full-position watcher and migrated-token exit have not passed live
+  // verification. Runtime flags alone must never unlock new purchases.
+  const exitPathVerified=false;
   let rpcConfigured=false;
   try{rpcEndpoint(env.RPC_URL);rpcConfigured=true}catch{}
   const operator=operatorConfiguration(env),signer=signerConfiguration(env);
   const serviceTokenConfigured=typeof env.ORDER_SERVICE_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_SERVICE_TOKEN);
   const contextConfigured=!!env.ORDER_CONTEXT?.fetch||typeof env.ORDER_CONTEXT_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_CONTEXT_TOKEN),journalConfigured=!!env.ACCOUNT_ORDERS;
-  const executionEnabled=rpcConfigured&&signer.configured&&serviceTokenConfigured&&contextConfigured&&journalConfigured&&env.SCOPE_EXECUTION_ENABLED==='true'&&env.SCOPE_ORDER_KILL_SWITCH==='false';
-  return {rpcConfigured,operator,signer,canaryPreparationConfigured:rpcConfigured&&operator.configured,
+  const executionEnabled=exitPathVerified&&rpcConfigured&&signer.configured&&serviceTokenConfigured&&contextConfigured&&journalConfigured&&env.SCOPE_EXECUTION_ENABLED==='true'&&env.SCOPE_ORDER_KILL_SWITCH==='false';
+  return {rpcConfigured,operator,signer,exitPathVerified,canaryPreparationConfigured:rpcConfigured&&operator.configured,
     journalConfigured,contextConfigured,serviceTokenConfigured,executionEnabled,
-    blockers:[...(!rpcConfigured?['rpc_not_configured']:[]),
+    blockers:[...(!exitPathVerified?['automatic_exit_path_not_verified']:[]),...(!rpcConfigured?['rpc_not_configured']:[]),
       ...signer.missing.map(x=>'missing_'+x),...signer.invalid.map(x=>'invalid_'+x),
       ...(!serviceTokenConfigured?['order_service_token_missing_or_invalid']:[]),...(!contextConfigured?['verified_order_context_not_connected']:[]),
       ...(!journalConfigured?['order_journal_not_connected']:[]),...(env.SCOPE_EXECUTION_ENABLED!=='true'?['execution_switch_off']:[]),
