@@ -12,7 +12,7 @@
     "wrangler": "4.141.0"
   },
   "scripts": {
-    "test": "node --test test-execution-pipeline.mjs test-service-admission.mjs test-executor-preflight.mjs test-pump-canary-build.mjs test-pump-sell.mjs test-rpc-transport.mjs test-inspect-pump-v2.mjs test-pump-sdk-inspection.mjs ../../scripts/test-cloudflare-order-controls.mjs ../../scripts/test-cloudflare-order-journal.mjs",
+    "test": "node --test test-position-exit.mjs test-execution-pipeline.mjs test-service-admission.mjs test-executor-preflight.mjs test-pump-canary-build.mjs test-pump-sell.mjs test-rpc-transport.mjs test-inspect-pump-v2.mjs test-pump-sdk-inspection.mjs ../../scripts/test-cloudflare-order-controls.mjs ../../scripts/test-cloudflare-order-journal.mjs",
     "check:deploy": "wrangler deploy --dry-run"
   }
 }
