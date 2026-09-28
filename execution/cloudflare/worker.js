@@ -30,7 +30,7 @@ export default {
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
       return reply({service:'scope-order-executor',build:BUILD,executionEnabled:config.executionEnabled,ordersSupported:true,
-        orderPipelineImplemented:true,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
+        orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
