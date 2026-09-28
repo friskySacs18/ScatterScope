@@ -3,6 +3,7 @@ import {verifySignedTransaction} from './signed-transaction.js';
 import {inspectPumpV2Transaction} from './inspect-pump-v2.js';
 import {broadcastRecordedTransaction,finalizedStatus,finalizedTransaction} from './rpc-transport.js';
 import {verifySettlement} from './settlement.js';
+import {confirmedPosition} from './position-exit.js';
 
 // Server-only entry point. The order must already have passed reserveBuy or
 // reserveFullSell using independently fetched evidence. Never expose prepared
@@ -56,7 +57,15 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
   await storage.transaction(async txn=>{
     const current=await txn.get('order:'+orderId);
     if(current?.state!=='broadcast'||current.signature!==order.signature)return;
-    await txn.put('order:'+orderId,{...current,state:receipt.state,receipt,settledAt:now()});
+    const settledAt=now(),settled={...current,state:receipt.state,receipt,settledAt};
+    if((current.side||'buy')==='buy'&&receipt.state==='confirmed'){
+      // A confirmed buy and its position must be recorded atomically. A bad
+      // rules snapshot leaves the order unresolved instead of opening a trade
+      // the exit loop cannot manage.
+      const position=confirmedPosition({buyOrder:settled,rules:current.exitRules,now:settledAt});
+      await txn.put('position:'+current.mint,position);
+    }
+    await txn.put('order:'+orderId,settled);
   });
   return {state:receipt.state,orderId,signature:order.signature,receipt};
 }
