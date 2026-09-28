@@ -10,7 +10,7 @@ export function evaluateBuy(evidence, now=Date.now()){
   if(evidence.killSwitch!==false||evidence.executionEnabled!==true)return block('execution_locked');
   if(evidence.accountStatus!=='active'||evidence.ownerVerified!==true||evidence.delegationVerified!==true||evidence.consentVerified!==true)return block('consent_or_account_unverified');
   if(!ID.test(evidence.accountId||'')||!ID.test(evidence.signalId||'')||!ADDRESS.test(evidence.wallet||'')||!ADDRESS.test(evidence.mint||'')||!ADDRESS.test(evidence.caller||''))return block('invalid_identity');
-  if(evidence.selectedCaller!==true||evidence.signalVerified!==true||evidence.historyComplete!==true||evidence.firstCall!==true||evidence.mintAlreadyHeld!==false)return block('call_history_unverified');
+  if(evidence.selectedCaller!==true||evidence.signalVerified!==true||evidence.mintAlreadyHeld!==false)return block('signal_or_prior_purchase_unverified');
   if(!Number.isSafeInteger(evidence.publishedAt)||evidence.publishedAt>now||now-evidence.publishedAt>30000||
      !Number.isSafeInteger(evidence.observedAt)||evidence.observedAt>now||evidence.observedAt<evidence.publishedAt||now-evidence.observedAt>20000)return block('stale_signal');
   if(!Number.isSafeInteger(evidence.monitorHeartbeatAt)||evidence.monitorHeartbeatAt>now||now-evidence.monitorHeartbeatAt>25000||evidence.feedHealthy!==true)return block('stale_feed');
