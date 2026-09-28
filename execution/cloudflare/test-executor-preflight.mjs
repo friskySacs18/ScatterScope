@@ -35,6 +35,8 @@ assert.equal(masked.signerKeyIssue,'masked_value');
 const key=generateKeyPairSync('ec',{namedCurve:'prime256v1'}).privateKey.export({format:'der',type:'pkcs8'}).toString('base64');
 const valid=await (await worker.fetch(new Request('https://executor.test/status'),{SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:key})).json();
 assert.equal(valid.signerKeyIssue,null);
+const prefixed=await (await worker.fetch(new Request('https://executor.test/status'),{SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'wallet-auth:'+key})).json();
+assert.equal(prefixed.signerKeyIssue,null);
 const mismatch=await worker.fetch(new Request('https://executor.test/canary/prepare',{method:'POST',headers:{authorization:'Bearer wrong'}}),{CANARY_PREPARE_TOKEN:token});
 assert.equal(mismatch.status,401);
 assert.equal((await hit('/orders/reconcile','POST','{}')).status,503);

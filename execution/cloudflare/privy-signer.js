@@ -9,9 +9,10 @@ const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 
 function authorizationKey(value){
   if(typeof value!=='string'||value!==value.trim())throw Error('Invalid authorization key');
-  const pem=value.startsWith('-----BEGIN PRIVATE KEY-----');
-  if(!pem&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(value))throw Error('Invalid authorization key');
-  const key=createPrivateKey(pem?value:{key:Buffer.from(value,'base64'),format:'der',type:'pkcs8'});
+  const material=value.startsWith('wallet-auth:')?value.slice('wallet-auth:'.length):value;
+  const pem=material.startsWith('-----BEGIN PRIVATE KEY-----');
+  if(!pem&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(material))throw Error('Invalid authorization key');
+  const key=createPrivateKey(pem?material:{key:Buffer.from(material,'base64'),format:'der',type:'pkcs8'});
   if(key.asymmetricKeyType!=='ec'||key.asymmetricKeyDetails?.namedCurve!=='prime256v1')throw Error('Authorization key must be P-256');
   return {privateKey:key.export({format:'der',type:'pkcs8'}).toString('base64'),
     publicKey:createPublicKey(key).export({format:'der',type:'spki'}).toString('base64')};
@@ -21,8 +22,9 @@ function authorizationKeyIssue(value){
   if(typeof value!=='string'||!value.trim())return null;
   if(value!==value.trim())return 'surrounding_whitespace';
   if(value.includes('*'))return 'masked_value';
-  if(value.startsWith('-----BEGIN ')&&!value.startsWith('-----BEGIN PRIVATE KEY-----'))return 'wrong_pem_type';
-  if(!value.startsWith('-----BEGIN PRIVATE KEY-----')&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(value))return 'not_pkcs8_base64';
+  const material=value.startsWith('wallet-auth:')?value.slice('wallet-auth:'.length):value;
+  if(material.startsWith('-----BEGIN ')&&!material.startsWith('-----BEGIN PRIVATE KEY-----'))return 'wrong_pem_type';
+  if(!material.startsWith('-----BEGIN PRIVATE KEY-----')&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(material))return 'not_pkcs8_base64';
   try{authorizationKey(value);return null}catch{return 'not_p256_pkcs8_private_key'}
 }
 

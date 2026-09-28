@@ -28,7 +28,7 @@ Use the order Worker's runtime **Settings → Variables and Secrets**, not its b
 | `ORDER_SERVICE_TOKEN` | Separate server-to-server order admission credential, 32–256 printable non-space characters. Never expose in the website bundle. |
 | `ORDER_CONTEXT_TOKEN` | Separate matching 32–256 character runtime secret on **both** Scope's Site and the order Worker. It authenticates the fixed server-to-server account lookup. Never put it in a browser or GitHub build variable. |
 | `PRIVY_APP_SECRET` | Scope's existing Privy app secret. |
-| `SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM` | Authorization key for the registered signer. Privy supplies base64 PKCS#8 without PEM headers; the legacy variable name is retained for compatibility. A valid PKCS#8 PEM is also accepted and converted before sending it to Privy. Never use a Solana seed phrase. |
+| `SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM` | Authorization key for the registered signer. Privy dashboard may supply `wallet-auth:` followed by base64 PKCS#8; paste the entire value. The legacy variable name is retained for compatibility. Unprefixed base64 PKCS#8 and a valid PKCS#8 PEM are also accepted. Never use a Solana seed phrase. |
 | `SCOPE_PRIVY_SIGNER_QUORUM_ID` | Registered signer quorum ID. |
 | `SCOPE_PRIVY_POLICY_ID` | Scope policy ID; its live rules must explicitly allow the signing method used by the order service. |
 | `SCOPE_EXECUTION_ENABLED` | Defaults off. Must remain off until context, policy, authority and actual transaction checks pass. |
