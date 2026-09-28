@@ -17,15 +17,25 @@ function authorizationKey(value){
     publicKey:createPublicKey(key).export({format:'der',type:'spki'}).toString('base64')};
 }
 
+function authorizationKeyIssue(value){
+  if(typeof value!=='string'||!value.trim())return null;
+  if(value!==value.trim())return 'surrounding_whitespace';
+  if(value.includes('*'))return 'masked_value';
+  if(value.startsWith('-----BEGIN ')&&!value.startsWith('-----BEGIN PRIVATE KEY-----'))return 'wrong_pem_type';
+  if(!value.startsWith('-----BEGIN PRIVATE KEY-----')&&!/^[A-Za-z0-9+/]{100,400}={0,2}$/.test(value))return 'not_pkcs8_base64';
+  try{authorizationKey(value);return null}catch{return 'not_p256_pkcs8_private_key'}
+}
+
 export function signerConfiguration(env={}){
   const required=['PRIVY_APP_SECRET','SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM','SCOPE_PRIVY_SIGNER_QUORUM_ID','SCOPE_PRIVY_POLICY_ID'];
   const missing=required.filter(key=>typeof env[key]!=='string'||!env[key].trim());
   const invalid=[];
   for(const key of ['SCOPE_PRIVY_SIGNER_QUORUM_ID','SCOPE_PRIVY_POLICY_ID'])if(env[key]&&!ID.test(env[key]))invalid.push(key);
-  if(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM)try{authorizationKey(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM)}catch{invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM')}
+  const keyIssue=authorizationKeyIssue(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM);
+  if(keyIssue)invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM');
   if(env.SCOPE_PRIVY_SIGNER_QUORUM_ID&&env.SCOPE_PRIVY_SIGNER_QUORUM_ID!==QUORUM_ID)invalid.push('SCOPE_PRIVY_SIGNER_QUORUM_ID');
   if(env.SCOPE_PRIVY_POLICY_ID&&env.SCOPE_PRIVY_POLICY_ID!==POLICY_ID)invalid.push('SCOPE_PRIVY_POLICY_ID');
-  return {configured:missing.length===0&&invalid.length===0,missing,invalid};
+  return {configured:missing.length===0&&invalid.length===0,missing,invalid,keyIssue};
 }
 
 // A policy for signAndSendTransaction does not authorize the signTransaction

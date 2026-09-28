@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {generateKeyPairSync} from 'node:crypto';
 import worker,{AccountOrderJournal} from './worker.js';
 const hit=(path,method='GET',body)=>worker.fetch(new Request('https://executor.test'+path,{method,body}));
 const status=await (await hit('/status')).json();
@@ -29,8 +30,12 @@ assert.equal((await journal.fetch(new Request('https://internal/reserve',{method
 const config=await (await worker.fetch(new Request('https://executor.test/status'),{CANARY_PREPARE_TOKEN:'short'})).json();
 assert.equal(config.operatorTokenIssue,'operator_token_invalid');
 assert.ok(config.signerMissing.includes('PRIVY_APP_SECRET'));
+const masked=await (await worker.fetch(new Request('https://executor.test/status'),{SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'***********'})).json();
+assert.equal(masked.signerKeyIssue,'masked_value');
+const key=generateKeyPairSync('ec',{namedCurve:'prime256v1'}).privateKey.export({format:'der',type:'pkcs8'}).toString('base64');
+const valid=await (await worker.fetch(new Request('https://executor.test/status'),{SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:key})).json();
+assert.equal(valid.signerKeyIssue,null);
 const mismatch=await worker.fetch(new Request('https://executor.test/canary/prepare',{method:'POST',headers:{authorization:'Bearer wrong'}}),{CANARY_PREPARE_TOKEN:token});
 assert.equal(mismatch.status,401);
 assert.equal((await hit('/orders/reconcile','POST','{}')).status,503);
 console.log('Executor bootstrap exposes status and requires service authentication and rejects forged admission flags');
-
