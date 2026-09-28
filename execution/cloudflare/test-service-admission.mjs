@@ -11,13 +11,14 @@ const ACCOUNT_ORDERS={idFromName:id=>id,get:()=>({fetch:async request=>{forwarde
 const ORDER_CONTEXT={fetch:async()=>Response.json({})};
 const request=body=>new Request('https://executor.test/orders/buy',{method:'POST',headers:{authorization:'Bearer '+token},body:JSON.stringify(body)});
 assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1'}),{...base,ACCOUNT_ORDERS})).status,503,'Cannot trade without private context');
-assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1',consentVerified:true}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,400,'Client evidence is never accepted');
+assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1',consentVerified:true}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,503,'Incomplete exit path blocks even forged client evidence');
 assert.equal(forwarded,0);
 assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT,SCOPE_ORDER_KILL_SWITCH:'true'})).status,503);
 assert.equal(forwarded,0);
-assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,200);
-assert.equal(forwarded,1);
-assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).executionEnabled,true);
+assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,503);
+assert.equal(forwarded,0);
+assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).executionEnabled,false);
+assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).blockers.includes('automatic_exit_path_not_verified'),true);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,RPC_URL:'https://untrusted.example/'}).executionEnabled,false);
 const contextToken='private-context-credential-just-for-this-test';
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT_TOKEN:contextToken}).contextConfigured,true);
