@@ -9,6 +9,8 @@ const evidence={killSwitch:false,executionEnabled:true,accountStatus:'active',ow
  selectedCaller:true,signalVerified:true,mintAlreadyHeld:false,publishedAt:now-5000,observedAt:now-3000,monitorHeartbeatAt:now-1000,feedHealthy:true,
  quoteAt:now-1000,marketCapUsd:25000,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
  maxLamports:'2000000',dailyCapLamports:'3000000',dailyReservedLamports:'0',balanceLamports:'5000000',maxFeeLamports:'100000',rentLamports:'2000000',minimumReserveLamports:'900000'};
+evidence.exitRules={profit1Percent:25,profit1Sell:100,profit2Percent:null,profit2Sell:null,stopPercent:25};
+assert.equal((await reserveBuy(storage,{...evidence,exitRules:null},now)).reason,'full_exit_rules_required');
 const two=await Promise.all([reserveBuy(storage,evidence,now),reserveBuy(storage,evidence,now)]);
 assert.equal(two.filter(x=>x.reserved).length,1);
 const id=two.find(x=>x.reserved).orderId;
@@ -43,4 +45,3 @@ assert.equal(await markBroadcast(storage,sellId,'4'.repeat(88)),true);
 assert.equal(await markFinalized(storage,sellId,'4'.repeat(88),{confirmationStatus:'finalized',err:null}),true);
 assert.equal(values.get('sell:'+evidence.mint),sellId,'Sell reservation remains locked after finalization');
 console.log('Serialized order reservation, budget, idempotence, signer uncertainty and finalization verified');
-
