@@ -1,4 +1,5 @@
 import {evaluateBuy} from './order-controls.js';
+import {fullExitRules} from './position-exit.js';
 const MAX_U64=18446744073709551615n;
 
 // One Durable Object per account serializes admission. Only a server component
@@ -6,6 +7,8 @@ const MAX_U64=18446744073709551615n;
 // HTTP JSON directly to this interface.
 export async function reserveBuy(storage,evidence,now=Date.now()){
   if(!storage?.transaction)throw Error('Durable account storage required');
+  let exitRules;
+  try{exitRules=fullExitRules(evidence.exitRules)}catch{return {reserved:false,reason:'full_exit_rules_required'}}
   const check=evaluateBuy(evidence,now);
   if(!check.allowed)return {reserved:false,reason:check.reason};
   return storage.transaction(async txn=>{
@@ -21,7 +24,7 @@ export async function reserveBuy(storage,evidence,now=Date.now()){
     if(reserved+amount>BigInt(evidence.dailyCapLamports))return {reserved:false,reason:'daily_budget_exceeded'};
     const orderId=crypto.randomUUID();
     const order={id:orderId,accountId:evidence.accountId,signalId:evidence.signalId,mint:evidence.mint,wallet:evidence.wallet,walletId:evidence.walletId||null,
-      amountLamports:amount.toString(),state:'reserved',createdAt:now,signature:null};
+      amountLamports:amount.toString(),exitRules,state:'reserved',createdAt:now,signature:null};
     await txn.put('order:'+orderId,order);
     await txn.put(signalKey,orderId);
     await txn.put(mintKey,orderId);
