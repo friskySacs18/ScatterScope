@@ -25,7 +25,7 @@ let calledUrl='';
 await assert.rejects(readOrderContext({ORDER_CONTEXT_TOKEN:contextToken},{accountId:'did:privy:account123',signalId:'call-1'},'buy',async(url,options)=>{
   calledUrl=url;assert.deepEqual(JSON.parse(options.body),{accountId:'did:privy:account123',signalId:'call-1',side:'buy'});
   assert.equal(options.headers.authorization,'Bearer '+contextToken);
-  return Response.json({allowed:false,blockers:['first_call_history_unverified']});
+  return Response.json({allowed:false,blockers:['mint_already_reserved_for_account']});
 }),/rejected/);
 assert.equal(calledUrl,'https://scopetrade.live/api/automation/order-context');
 await assert.rejects(readOrderContext({}, {accountId:'did:privy:account123',signalId:'call-1'},'buy'),/not connected/);
