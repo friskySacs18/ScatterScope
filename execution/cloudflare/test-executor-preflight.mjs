@@ -37,6 +37,12 @@ const valid=await (await worker.fetch(new Request('https://executor.test/status'
 assert.equal(valid.signerKeyIssue,null);
 const prefixed=await (await worker.fetch(new Request('https://executor.test/status'),{SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'wallet-auth:'+key})).json();
 assert.equal(prefixed.signerKeyIssue,null);
+const signerStatus=await (await worker.fetch(new Request('https://executor.test/status'),{
+  PRIVY_APP_SECRET:'test',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:'wallet-auth:'+key,
+  SCOPE_PRIVY_SIGNER_QUORUM_ID:'igsys5hz5fmsly8v2q242jgo',SCOPE_PRIVY_POLICY_ID:'qhtl0rqr7553234g6zb7dna2'
+})).json();
+assert.match(signerStatus.signerPublicKey,/^MFkwEw/);
+assert.equal(signerStatus.executionEnabled,false);
 const mismatch=await worker.fetch(new Request('https://executor.test/canary/prepare',{method:'POST',headers:{authorization:'Bearer wrong'}}),{CANARY_PREPARE_TOKEN:token});
 assert.equal(mismatch.status,401);
 assert.equal((await hit('/orders/reconcile','POST','{}')).status,503);

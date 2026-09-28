@@ -37,7 +37,9 @@ export function signerConfiguration(env={}){
   if(keyIssue)invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM');
   if(env.SCOPE_PRIVY_SIGNER_QUORUM_ID&&env.SCOPE_PRIVY_SIGNER_QUORUM_ID!==QUORUM_ID)invalid.push('SCOPE_PRIVY_SIGNER_QUORUM_ID');
   if(env.SCOPE_PRIVY_POLICY_ID&&env.SCOPE_PRIVY_POLICY_ID!==POLICY_ID)invalid.push('SCOPE_PRIVY_POLICY_ID');
-  return {configured:missing.length===0&&invalid.length===0,missing,invalid,keyIssue};
+  const configured=missing.length===0&&invalid.length===0;
+  return {configured,missing,invalid,keyIssue,
+    publicKey:configured?authorizationKey(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM).publicKey:null};
 }
 
 // A policy for signAndSendTransaction does not authorize the signTransaction

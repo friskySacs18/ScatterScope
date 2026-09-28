@@ -33,7 +33,8 @@ export default {
         orderPipelineImplemented:true,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
-        signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,blockers:config.blockers,
+        signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
+        signerPublicKey:config.signer.publicKey,blockers:config.blockers,
         liveBuySellVerified:false,
         reason:'Order context and wallet delegation must be verified before live execution.'});
     }
