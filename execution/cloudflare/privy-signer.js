@@ -4,7 +4,7 @@ import {createPrivateKey,createPublicKey} from 'node:crypto';
 const APP_ID='cmuejmq9g00eg0cla13182nah';
 const ID=/^[a-z0-9]{24}$/;
 const PUMP_PROGRAMS=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
-const QUORUM_ID='l2kx7hvbz4qd9cj9jqsdaoj5';
+const QUORUM_ID='igsys5hz5fmsly8v2q242jgo';
 const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 
 function authorizationKey(value){
