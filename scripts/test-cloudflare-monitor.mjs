@@ -15,7 +15,7 @@ globalThis.fetch=async(url,options)=>{
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v10',intervalMs:10000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v11',intervalMs:10000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
  assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,10000);
@@ -47,21 +47,22 @@ try{
  assert.deepEqual(summary.checksSinceUpgrade,{successful:2,rateLimited:2,otherFailed:1,maxSuccessfulGapMs:recovered.checksSinceUpgrade.maxSuccessfulGapMs});
  assert.ok(summary.checksSinceUpgrade.maxSuccessfulGapMs>=0);
  assert.equal(Object.hasOwn(summary,'callerCount'),false);
+ assert.equal(monitor.health.pollFloorMs,30000,'Repeated 429s teach a durable safe polling floor');
  monitor.health.stableSince=Date.now()-30*60*1000-1000;
  await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,8000,'A sustained healthy period earns the faster small-list cadence');
- assert.ok(alarm>=Date.now()+7900&&alarm<=Date.now()+8100);
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,30000,'Healthy recovery retains the learned floor');
+ assert.ok(alarm>=Date.now()+29900&&alarm<=Date.now()+30100);
  callerCount=10;alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,10000,'Changing to ten callers restarts the healthy window');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,30000,'Changing to ten callers restarts the healthy window');
  monitor.health.stableSince=Date.now()-10*60*1000-1000;
  alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,8000,'Ten callers can earn faster checks after sustained healthy reads');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,30000,'Healthy reads never erase a throttle-learned floor');
  fail=true;alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,10000,'A failed check drops the faster cadence');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,30000,'A failed check drops the faster cadence');
  fail=false;monitor.health.stableSince=Date.now()-10*60*1000-1000;
  alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,10000,'Recovery needs a fresh healthy period');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,30000,'Recovery needs a fresh healthy period');
  await worker.fetch(req('/stop'),env);assert.equal(alarm,null);const before=calls;await monitor.alarm();assert.equal(calls,before);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,false,'Stop survives a restart');
- console.log('Cloudflare scheduler: adaptive eight-second cadence for ten callers, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
+ console.log('PASS: durable learned throttle floor, cooldown, authenticated controls, restart recovery and persistent stop');
 }finally{globalThis.fetch=original}
