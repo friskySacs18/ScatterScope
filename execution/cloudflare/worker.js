@@ -7,7 +7,7 @@ import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 
-const BUILD='executor-one-shot-canary-v10';
+const BUILD='executor-armed-canary-v11';
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const page=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scope trade preflight</title><style>body{font:16px system-ui;background:#11151d;color:#f4f7ff;max-width:500px;margin:32px auto;padding:18px;line-height:1.5}label{display:block;margin:18px 0 7px}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:10px;border:1px solid #8894ae;font:inherit}button{background:#c6fb78;border:0;margin-top:22px;font-weight:700}p,small{color:#b5bfd1}output{display:block;white-space:pre-wrap;margin-top:20px}</style><h1>Unsigned trade check</h1><p>Checks one 0.002 SOL Pump buy against current chain state. This page cannot sign, submit, or enable orders.</p><form id="preflight" autocomplete="off"><label for="token">Operator token</label><input id="token" type="password" autocomplete="off" required><label for="wallet">Your Scope wallet address</label><input id="wallet" spellcheck="false" autocapitalize="off" required><label for="mint">Pump token mint address</label><input id="mint" spellcheck="false" autocapitalize="off" required><button>Check unsigned trade</button></form><output id="result" role="status"></output><script src="/canary/ui.js" defer></script></html>`;
 const pageScript=`const form=document.querySelector('#preflight'),output=document.querySelector('#result');form.addEventListener('submit',async event=>{event.preventDefault();const token=document.querySelector('#token').value.trim(),wallet=document.querySelector('#wallet').value.trim(),mint=document.querySelector('#mint').value.trim();document.querySelector('#token').value='';output.textContent='Checking current chain state…';form.querySelector('button').disabled=true;try{const response=await fetch('/canary/prepare',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({wallet,mint}),cache:'no-store'});const result=await response.json();output.textContent=response.ok?'Unsigned trade simulated. Maximum spend: '+(Number(result.maximumSpendLamports)/1e9).toFixed(6)+' SOL. Token amount (raw): '+result.tokenAmountRaw+'. Simulated compute units: '+result.simulationUnits+'. No transaction was signed or sent.':response.status===401?'The token does not match the deployed CANARY_PREPARE_TOKEN runtime secret.':result.error||'Preflight unavailable.'}catch{output.textContent='Network check failed; no transaction was sent.'}finally{form.querySelector('button').disabled=false}});`;
@@ -82,18 +82,23 @@ export default {
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/alerts',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
     }
-    if(['/orders/buy','/orders/sell','/orders/canary/buy','/orders/canary/status'].includes(path)){
+    if(['/orders/buy','/orders/sell','/orders/canary/buy','/orders/canary/arm','/orders/canary/status'].includes(path)){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
       const token=env?.ORDER_SERVICE_TOKEN;
       if(typeof token!=='string'||token.length<32||!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),token))return reply({error:'Service authorization required',executionEnabled:false},401);
       const config=serviceConfiguration(env);
-      if(path==='/orders/canary/buy'?!config.canaryAvailable:path==='/orders/canary/status'?false:!config.executionEnabled)
+      if((path==='/orders/canary/buy'||path==='/orders/canary/arm')?!config.canaryAvailable:path==='/orders/canary/status'?false:!config.executionEnabled)
         return reply({error:'Order service setup incomplete',blockers:config.blockers,executionEnabled:false},503);
       let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
       if(path==='/orders/canary/status'){
         if(!body||Object.keys(body).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Expected accountId only'},400);
         const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
         return stub.fetch(new Request('https://internal/canary/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+      }
+      if(path==='/orders/canary/arm'){
+        if(!body||Object.keys(body).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Expected accountId only'},400);
+        const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
+        return stub.fetch(new Request('https://internal/canary/arm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
       }
       if(!body||Object.keys(body).sort().join(',')!=='accountId,signalId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||'')||!/^[A-Za-z0-9:_-]{1,128}$/.test(body.signalId||''))return reply({error:'Expected accountId and signalId only'},400);
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
@@ -130,8 +135,9 @@ export class AccountOrderJournal {
         return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});
       }
       if(path==='/canary/status'){
+        const arm=await this.storage.get('canary-arm');
         const buyId=await this.storage.get('canary-attempt');
-        if(!buyId)return reply({state:'not_started'});
+        if(!buyId)return reply(arm&&arm.expiresAt>Date.now()?{state:'armed',expiresAt:arm.expiresAt}:{state:'not_started'});
         const buy=await this.storage.get('order:'+buyId),position=buy?.mint?await this.storage.get('position:'+buy.mint):null;
         const sellId=buy?.mint?await this.storage.get('sell:'+buy.mint):null;
         const sell=sellId?await this.storage.get('order:'+sellId):null;
@@ -142,6 +148,15 @@ export class AccountOrderJournal {
           mint:buy?.mint||null,buy:{state:buy?.state||'unavailable',signature:buy?.signature||null},
           sell:sell?{state:sell.state,signature:sell.signature||null}:null,
           position:position?.state||null,sellFailures});
+      }
+      if(path==='/canary/arm'){
+        if(!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body?.accountId||''))return reply({error:'Invalid account'},400);
+        if(await this.storage.get('canary-attempt'))return reply({state:'blocked',reason:'canary_already_attempted'},409);
+        const now=Date.now(),arm={accountId:body.accountId,armedAt:now,expiresAt:now+600000};
+        await this.storage.put('canary-arm',arm);
+        const next=await this.storage.getAlarm();
+        if(next===null||next>now+1000)await this.storage.setAlarm(now+1000);
+        return reply({state:'armed',expiresAt:arm.expiresAt});
       }
       if(path==='/orders/buy'||path==='/orders/sell'||path==='/orders/canary/buy')
         return reply(await runAccountOrder({storage:this.storage,env:this.env,job:body,
@@ -159,8 +174,31 @@ export class AccountOrderJournal {
           if(['confirmed','failed'].includes(outcome.state))await this.storage.delete('active-order');
           else return; // Unknown signatures stay locked; only reconcile again.
         }
+        const arm=await this.storage.get('canary-arm');
+        if(arm){
+          if(arm.expiresAt<=Date.now()||await this.storage.get('canary-attempt'))await this.storage.delete('canary-arm');
+          else{
+            try{
+              const response=await fetch('https://scopetrade.live/api/automation/canary/next',{
+                method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+this.env.ORDER_CONTEXT_TOKEN},
+                body:JSON.stringify({accountId:arm.accountId,armedAt:arm.armedAt}),signal:AbortSignal.timeout(7000)});
+              if(response.ok){
+                const candidate=await response.json();
+                if(candidate.signalId){
+                  const result=await runAccountOrder({storage:this.storage,env:this.env,
+                    job:{accountId:arm.accountId,signalId:candidate.signalId},side:'buy',canary:true});
+                  if(await this.storage.get('canary-attempt')||result.state==='blocked'&&result.reason==='canary_already_attempted')
+                    await this.storage.delete('canary-arm');
+                }
+              }
+            }catch(error){console.error('Armed canary check unavailable',String(error?.message||error))}
+          }
+        }
         const positions=await this.storage.list({prefix:'position:'});
-        if(![...positions.values()].some(p=>p?.state==='open')){rearm=false;return}
+        if(![...positions.values()].some(p=>p?.state==='open')){
+          const pendingArm=await this.storage.get('canary-arm');
+          rearm=Boolean(pendingArm&&pendingArm.expiresAt>Date.now());return;
+        }
         await inspectOpenPositions({storage:this.storage,rpcUrl:this.env.RPC_URL});
         // A funded canary closes in full as soon as the confirmed buy exists.
         // It is isolated from automatic callout dispatch and normal targets.
