@@ -83,3 +83,19 @@ export async function finalizedTransaction({signature,rpcUrl,fetcher=fetch}){
   return callRpc(rpcUrl,{method:'getTransaction',params:[signature,
     {encoding:'base64',commitment:'finalized',maxSupportedTransactionVersion:0}]},fetcher);
 }
+
+// Expiry is proven only against finalized chain state and a second history
+// lookup. An unavailable RPC or a visible signature keeps the order locked.
+export async function recordedTransactionExpiry({signature,encoded,lastValidBlockHeight,rpcUrl,fetcher=fetch}){
+  if(!Number.isSafeInteger(lastValidBlockHeight)||lastValidBlockHeight<1||signedIdentity(encoded)!==signature)return null;
+  try{
+    const tx=VersionedTransaction.deserialize(Uint8Array.from(atob(encoded),x=>x.charCodeAt(0)));
+    const height=await callRpc(rpcUrl,{method:'getBlockHeight',params:[{commitment:'finalized'}]},fetcher);
+    if(!Number.isSafeInteger(height)||height<=lastValidBlockHeight)return null;
+    const valid=await callRpc(rpcUrl,{method:'isBlockhashValid',params:[tx.message.recentBlockhash,{commitment:'finalized'}]},fetcher);
+    if(valid?.value!==false)return null;
+    const status=await callRpc(rpcUrl,{method:'getSignatureStatuses',params:[[signature],{searchTransactionHistory:true}]},fetcher);
+    if(!Array.isArray(status?.value)||status.value.length!==1||status.value[0]!==null)return null;
+    return {finalizedBlockHeight:height,lastValidBlockHeight,blockhash:tx.message.recentBlockhash};
+  }catch{return null}
+}
