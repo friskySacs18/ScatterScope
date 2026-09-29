@@ -5,10 +5,11 @@ assert.deepEqual(fullExitRules(rules),{profitPercent:25,stopPercent:25});
 for(const invalid of [{...rules,profit1Sell:50},{...rules,profit2Percent:50,profit2Sell:100},{}])
   assert.throws(()=>fullExitRules(invalid),/Full-balance/);
 const now=Date.now();
-const buy={id:'buy-1',state:'confirmed',wallet:'wallet-1',mint:'mint-1',amountLamports:'2000000',settledAt:now-1000,
+const buy={id:'buy-1',accountId:'did:privy:account123',signalId:'callout-12345',state:'confirmed',wallet:'wallet-1',mint:'mint-1',amountLamports:'2000000',settledAt:now-1000,
   prepared:{reservedRentLamports:'2500000'},receipt:{state:'confirmed',tokenDeltaRaw:'123000',solDeltaLamports:'-2100000',tradeCostLamports:'2000000',feeLamports:'5000'}};
 const position=confirmedPosition({buyOrder:buy,rules,now});
 assert.equal(position.costLamports,'2000000');
+assert.equal(position.accountId,buy.accountId);assert.equal(position.signalId,buy.signalId);
 const quote=amount=>({expectedSolOutLamports:String(amount),observedAt:now-100,wallet:'wallet-1',mint:'mint-1',amountRaw:'123000'});
 assert.equal(fullExitTrigger(position,quote('2500000'),{now}).reason,'profit');
 assert.equal(fullExitTrigger(position,quote('1500000'),{now}).reason,'stop');
