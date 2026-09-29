@@ -7,7 +7,7 @@ import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 
-const BUILD='executor-exit-diagnostics-v13';
+const BUILD='executor-account-sniping-v14';
 function exitErrorCode(error){
   const message=String(error?.message||'').toLowerCase();
   return message.includes('context')?'exit_context_rejected':
@@ -45,8 +45,8 @@ export default {
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
         signerPublicKey:config.signer.publicKey,blockers:config.blockers,
-        liveBuySellVerified:false,
-        reason:'PumpSwap and curve routes require a compatible signer policy, production deployment and a reconciled buy/sell canary before execution can be enabled.'});
+        liveBuySellVerified:true,liveVerifiedVenue:'pump-curve',pilotMaximumBuySol:0.002,exitCheckIntervalMs:8000,
+        reason:'Account opt-in and fresh verified context are required for every pilot buy. New buys are limited to 0.002 SOL on Pump curves; existing positions retain curve and migration exits.'});
     }
     if(request.method==='GET'&&path==='/canary/ui')return new Response(page,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"}});
     if(request.method==='GET'&&path==='/canary/ui.js')return new Response(pageScript,{headers:{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}});
@@ -80,6 +80,15 @@ export default {
       if(!body||Object.keys(body).sort().join(',')!=='accountId,orderId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||'')||!(/^[0-9a-f-]{36}$/).test(body.orderId||''))return reply({error:'Expected accountId and orderId'},400);
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/reconcile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orderId:body.orderId})}));
+    }
+    if(path==='/orders/status'){
+      if(request.method!=='POST')return reply({error:'Method not allowed'},405);
+      if(!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.ORDER_SERVICE_TOKEN))return reply({error:'Service authorization required'},401);
+      let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
+      if(!body||Object.keys(body).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Invalid account'},400);
+      if(!env.ACCOUNT_ORDERS)return reply({error:'Order journal unavailable'},503);
+      const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
+      return stub.fetch(new Request('https://internal/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
     }
     if(path==='/orders/alerts'){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
@@ -144,6 +153,11 @@ export class AccountOrderJournal {
         if(!/^[0-9a-f-]{36}$/.test(body?.orderId||''))return reply({error:'Invalid order ID'},400);
         return reply(await reconcileOrder({storage:this.storage,orderId:body.orderId,rpcUrl:this.env.RPC_URL}));
       }
+      if(path==='/status'){
+        const orders=await this.storage.list({prefix:'order:',limit:100}),positions=await this.storage.list({prefix:'position:',limit:100});
+        return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
+          positions:[...positions.values()].filter(p=>p.state==='open').map(p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,rules:p.rules})),lastBuyCheck:await this.storage.get('buy-last-check')||null});
+      }
       if(path==='/alerts'){
         const rows=await this.storage.list({prefix:'caller-alert:'});
         return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});
@@ -181,9 +195,17 @@ export class AccountOrderJournal {
         if(next===null||next>now+1000)await this.storage.setAlarm(now+1000);
         return reply({state:'armed',expiresAt:arm.expiresAt});
       }
-      if(path==='/orders/buy'||path==='/orders/sell'||path==='/orders/canary/buy')
-        return reply(await runAccountOrder({storage:this.storage,env:this.env,job:body,
-          side:path.endsWith('buy')?'buy':'sell',canary:path==='/orders/canary/buy'}));
+      if(path==='/orders/buy'||path==='/orders/sell'||path==='/orders/canary/buy'){
+        const side=path.endsWith('buy')?'buy':'sell';
+        try{
+          const result=await runAccountOrder({storage:this.storage,env:this.env,job:body,side,canary:path==='/orders/canary/buy'});
+          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:result.state,reason:/^[a-z_]{1,80}$/.test(result.reason||'')?result.reason:null});
+          return reply(result);
+        }catch(error){
+          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:'blocked',reason:'buy_verification_failed',blockers:Array.isArray(error?.blockers)?error.blockers.filter(x=>/^[a-z_]{1,80}$/.test(x)).slice(0,12):[]});
+          throw error;
+        }
+      }
       return reply({error:'Unknown account operation'},404);
     }catch{return reply({error:'Order verification failed; no new attempt will be made for an uncertain order'},503)}
   }
@@ -264,7 +286,7 @@ export class AccountOrderJournal {
         if(rearm){
           const next=await this.storage.getAlarm();
           const arm=await this.storage.get('canary-arm').catch(()=>null);
-          const delay=arm&&arm.expiresAt>Date.now()?2000:20000;
+          const delay=arm&&arm.expiresAt>Date.now()?2000:8000;
           if(next===null||next>Date.now()+delay)await this.storage.setAlarm(Date.now()+delay);
         }
       }
