@@ -20,7 +20,7 @@ export async function readOrderContext(env,job,side,fetcher=fetch){
   if(!response.ok)throw Error('Order context unavailable');
   const context=await response.json();
   if(context.accountId!==job.accountId||context.signalId!==job.signalId||context.allowed!==true||
-    !/^[a-z0-9]{24}$/.test(context.walletId||'')||typeof context.revision!=='string'||!context.revision||context.revision.length>128||!context.evidence)throw Error('Verified order context rejected');
+    !/^[a-z0-9]{24}$/.test(context.walletId||'')||typeof context.revision!=='string'||!context.revision||context.revision.length>128||!context.evidence){const error=Error('Verified order context rejected');error.blockers=Array.isArray(context.blockers)?context.blockers.filter(x=>/^[a-z_]{1,80}$/.test(x)):[];throw error;}
   return context;
 }
 
@@ -29,9 +29,11 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   prepareAmmBuy=preparePumpAmmBuy,prepareAmmSell=preparePumpAmmFullSell,
   quoteSell=quotePumpFullSell,signerFactory=createPrivySigner,fetcher=fetch}){
   if(!canary&&(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false'))return {state:'blocked',reason:'execution_disabled'};
+  if(!canary&&side==='buy'&&job.accountId!==env.SCOPE_AUTOMATION_PILOT_ACCOUNT)return {state:'blocked',reason:'account_pilot_required'};
   const contextSide=canary?'canary-'+side:side;
   const context=await contextReader(env,job,contextSide),e=context.evidence;
   if(canary&&(e.canary!==true||side==='buy'&&e.maxLamports!=='2000000'))throw Error('Canary context rejected');
+  if(!canary&&side==='buy'&&(!/^[1-9]\d*$/.test(e.maxLamports||'')||BigInt(e.maxLamports)>2000000n))return {state:'blocked',reason:'pilot_buy_limit_exceeded'};
   if(e.accountId!==job.accountId||e.signalId!==job.signalId)throw Error('Evidence identity mismatch');
   if(canary&&side==='buy'&&await storage.get('canary-attempt'))return {state:'blocked',reason:'canary_already_attempted'};
   let position;
@@ -57,6 +59,7 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   if(side==='buy'){
     try{prepared=await prepareBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports})}
     catch(error){if(error?.message!=='migrated_pool_requires_pumpswap_buy')throw error;
+      if(!canary)return {state:'blocked',reason:'pilot_requires_bonding_curve'};
       prepared=await prepareAmmBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports});}
   }else prepared=await (exitVenue==='pump-amm'?prepareAmmSell:prepareSell)({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
   const common={...e,walletId:context.walletId,canary,executionEnabled:true,killSwitch:false,quoteAt:prepared.quoteAt,
