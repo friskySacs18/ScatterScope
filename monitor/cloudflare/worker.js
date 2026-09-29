@@ -4,7 +4,7 @@ const FAST_INTERVAL=8000;
 const SLOW_INTERVAL=30000;
 const RECOVER_AFTER=30*60*1000;
 const SPEED_UP_AFTER=10*60*1000;
-const BUILD='adaptive-feed-metrics-v10';
+const BUILD='adaptive-feed-metrics-v11';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
@@ -75,7 +75,10 @@ export class ScopeMonitor {
     const at=Date.now();
     try{
       // Arm the next check first so downstream outages do not end scheduling.
-      const interval=[FAST_INTERVAL,SLOW_INTERVAL].includes(this.health.intervalMs)?this.health.intervalMs:INTERVAL;
+      const interval=[FAST_INTERVAL,INTERVAL,15000,20000,SLOW_INTERVAL].includes(this.health.intervalMs)?this.health.intervalMs:INTERVAL;
+      // Existing recovery state migrates conservatively. A 429 establishes a
+      // durable floor so recovery cannot repeatedly jump to a throttled rate.
+      let pollFloorMs=this.health.pollFloorMs||((interval===SLOW_INTERVAL&&(this.health.checksSinceUpgrade?.rateLimited||0)>0)?15000:FAST_INTERVAL);
       await this.storage.setAlarm(at+interval);
       let ok=false,httpStatus=null,error='Monitor unavailable',callerCount=null,retryAfterMs=0;
       try{
@@ -108,13 +111,14 @@ export class ScopeMonitor {
       if(ok&&this.health.callerCount!==callerCount)stableSince=completedAt;
       // Any failed check drops the fast cadence; a provider 429 retains the
       // long cooldown rather than repeatedly probing a throttled source.
-      const nextInterval=httpStatus===429?SLOW_INTERVAL:!ok?INTERVAL:
+      if(httpStatus===429)pollFloorMs=Math.min(SLOW_INTERVAL,Math.max(15000,pollFloorMs,Math.ceil(interval*1.5/5000)*5000));
+      const nextInterval=httpStatus===429?SLOW_INTERVAL:!ok?Math.max(INTERVAL,pollFloorMs):
         interval===SLOW_INTERVAL&&completedAt-stableSince<RECOVER_AFTER?SLOW_INTERVAL:
-        completedAt-stableSince>=SPEED_UP_AFTER?FAST_INTERVAL:INTERVAL;
+        completedAt-stableSince>=SPEED_UP_AFTER?Math.max(FAST_INTERVAL,pollFloorMs):Math.max(INTERVAL,pollFloorMs);
       if(nextInterval!==interval){await this.storage.setAlarm(at+nextInterval)}
       if(!ok)console.warn('Scope monitor unhealthy',JSON.stringify({httpStatus,retryAfterMs:retryAfterMs||null,reason:error}));
       else if(this.health.lastCheckOk===false)console.info('Scope monitor recovered',JSON.stringify({httpStatus,callerCount}));
-      this.health={lastCheckedAt:at,lastSuccessAt:ok?completedAt:this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null,checksSinceUpgrade,intervalMs:nextInterval,stableSince};
+      this.health={lastCheckedAt:at,lastSuccessAt:ok?completedAt:this.health.lastSuccessAt,lastCheckOk:ok,httpStatus,callerCount,error,rateLimitCount,retryAt:retryAfterMs?Date.now()+retryAfterMs:null,checksSinceUpgrade,intervalMs:nextInterval,stableSince,pollFloorMs};
       await this.storage.put('health',this.health);
       if(this.health.retryAt&&this.enabled)await this.storage.setAlarm(this.health.retryAt);
     }finally{this.busy=false;}
