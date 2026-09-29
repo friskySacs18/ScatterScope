@@ -53,7 +53,7 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   // the same balance concurrently, including while an RPC response is lost.
   const prior=await storage.get('active-order');
   if(prior){const outcome=await reconcileOrder({storage,orderId:prior,rpcUrl:env.RPC_URL,fetcher});
-    if(!['confirmed','failed'].includes(outcome.state))return {...outcome,reason:'prior_order_unresolved'};
+    if(!['confirmed','failed','expired'].includes(outcome.state))return {...outcome,reason:'prior_order_unresolved'};
     await storage.delete('active-order');}
   let prepared;
   if(side==='buy'){
