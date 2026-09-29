@@ -33,7 +33,7 @@ assert.equal((await worker.fetch(armRequest,{...base,ACCOUNT_ORDERS,ORDER_CONTEX
 assert.equal(forwarded,3,'Arming routes only to the private per-account journal');
 const durable=new Map();let alarmAt=null;
 const storage={get:async key=>durable.get(key),put:async(key,value)=>durable.set(key,value),
-  getAlarm:async()=>alarmAt,setAlarm:async at=>{alarmAt=at}};
+  delete:async key=>durable.delete(key),transaction:async fn=>fn(storage),getAlarm:async()=>alarmAt,setAlarm:async at=>{alarmAt=at}};
 const journal=new AccountOrderJournal({storage},{...base,ACCOUNT_ORDERS,ORDER_CONTEXT});
 const armed=await journal.fetch(new Request('https://internal/canary/arm',{
   method:'POST',body:JSON.stringify({accountId:validCanary.accountId})}));
