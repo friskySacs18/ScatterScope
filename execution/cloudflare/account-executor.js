@@ -29,7 +29,6 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   prepareAmmBuy=preparePumpAmmBuy,prepareAmmSell=preparePumpAmmFullSell,
   quoteSell=quotePumpFullSell,signerFactory=createPrivySigner,fetcher=fetch}){
   if(!canary&&(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false'))return {state:'blocked',reason:'execution_disabled'};
-  if(!canary&&side==='buy'&&job.accountId!==env.SCOPE_AUTOMATION_PILOT_ACCOUNT)return {state:'blocked',reason:'account_pilot_required'};
   const contextSide=canary?'canary-'+side:side;
   const context=await contextReader(env,job,contextSide),e=context.evidence;
   if(canary&&(e.canary!==true||side==='buy'&&e.maxLamports!=='2000000'))throw Error('Canary context rejected');
