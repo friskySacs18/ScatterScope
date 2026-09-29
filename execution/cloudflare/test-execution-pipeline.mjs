@@ -82,6 +82,7 @@ const tradePolicy={...goodPolicy,id:'abcdefghijklmnopqrstuvwx',rules:[
     'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA','TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA','TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb']}]},
   {...goodPolicy.rules[1],conditions:[{field_source:'solana_system_program_instruction',field:'Transfer.to',operator:'eq',value:'4dWv5mpSYfiw4iMjzgF51fF2eGchByQMTPpWibgZzYMz'}]}]};
 assert.equal(verifiedSigningPolicy(tradePolicy,tradePolicy.id),true);
+assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[{...tradePolicy.rules[0],conditions:[...tradePolicy.rules[0].conditions,...tradePolicy.rules[1].conditions]}]},tradePolicy.id),false);
 assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[tradePolicy.rules[0],goodPolicy.rules[1]]},tradePolicy.id),false);
 assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[tradePolicy.rules[0],{...tradePolicy.rules[1],conditions:[{...tradePolicy.rules[1].conditions[0],value:wallet}]}]},tradePolicy.id),false);
 const quorum={id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,authorization_threshold:1,authorization_keys:[{public_key:signerTestPublic.export({format:'der',type:'spki'}).toString('base64')}]};
