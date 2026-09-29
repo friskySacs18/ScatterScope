@@ -5,6 +5,7 @@ import {preparePumpCanaryBuy} from './pump-canary-build.js';
 import {serviceConfiguration,operatorConfiguration} from './service-config.js';
 import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
+import {inspectOpenPositions} from './position-monitor.js';
 
 const BUILD='executor-foundation-v6';
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
@@ -114,12 +115,19 @@ export class AccountOrderJournal {
   }
   async alarm(){
     const task=this.pending.then(async()=>{
-      const id=await this.storage.get('active-order');if(!id)return;
-      const outcome=await reconcileOrder({storage:this.storage,orderId:id,rpcUrl:this.env.RPC_URL});
-      if(['confirmed','failed'].includes(outcome.state)){await this.storage.delete('active-order');return}
-      // Unknown signatures or missing receipts stay locked. Alarms only read
-      // chain evidence, never re-sign, resubmit or create another order.
-      await this.storage.setAlarm(Date.now()+30000);
+      const id=await this.storage.get('active-order');
+      if(id){
+        const outcome=await reconcileOrder({storage:this.storage,orderId:id,rpcUrl:this.env.RPC_URL});
+        if(['confirmed','failed'].includes(outcome.state))await this.storage.delete('active-order');
+        else{
+          // Unknown signatures stay locked. Never re-sign or resubmit.
+          await this.storage.setAlarm(Date.now()+30000);return;
+        }
+      }
+      const positions=await this.storage.list({prefix:'position:'});
+      if(![...positions.values()].some(p=>p?.state==='open'))return;
+      try{await inspectOpenPositions({storage:this.storage,rpcUrl:this.env.RPC_URL})}
+      finally{await this.storage.setAlarm(Date.now()+20000)}
     });
     this.pending=task.catch(()=>{});await task;
   }
