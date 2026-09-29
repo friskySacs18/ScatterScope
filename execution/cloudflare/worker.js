@@ -126,8 +126,30 @@ export class AccountOrderJournal {
       }
       const positions=await this.storage.list({prefix:'position:'});
       if(![...positions.values()].some(p=>p?.state==='open'))return;
-      try{await inspectOpenPositions({storage:this.storage,rpcUrl:this.env.RPC_URL})}
-      finally{await this.storage.setAlarm(Date.now()+20000)}
+      try{
+        await inspectOpenPositions({storage:this.storage,rpcUrl:this.env.RPC_URL});
+        // Only the account's confirmed position and its observed exit intent
+        // may start an automatic sell. The order host re-quotes, verifies the
+        // full token balance, refreshes consent, and journals before signing.
+        if(serviceConfiguration(this.env).executionEnabled){
+          const intents=await this.storage.list({prefix:'exit-intent:'});
+          for(const [key,intent] of intents){
+            const mint=key.slice('exit-intent:'.length),position=await this.storage.get('position:'+mint);
+            if(intent?.state!=='pending-verification'||position?.state!=='open'||
+              position.mint!==mint||position.buyOrderId!==intent.buyOrderId||
+              !position.accountId||!position.signalId)continue;
+            try{
+              const result=await runAccountOrder({storage:this.storage,env:this.env,
+                job:{accountId:position.accountId,signalId:position.signalId},side:'sell'});
+              if(result.state==='signing_unknown'||result.state==='broadcast'||result.state==='reconciliation_pending')break;
+            }catch(error){console.error('Exit submission unavailable',String(error?.message||error))}
+          }
+        }
+      }
+      finally{
+        const next=await this.storage.getAlarm();
+        if(next===null||next>Date.now()+20000)await this.storage.setAlarm(Date.now()+20000);
+      }
     });
     this.pending=task.catch(()=>{});await task;
   }
