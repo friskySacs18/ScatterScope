@@ -15,16 +15,16 @@ globalThis.fetch=async(url,options)=>{
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v8',intervalMs:20000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v9',intervalMs:8000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
- assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,20000);
+ assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,8000);
  assert.equal(Object.hasOwn(publicBody,'callerCount'),false);assert.equal(Object.hasOwn(publicBody,'error'),false);
  assert.equal((await worker.fetch(req('/start',false),env)).status,401);assert.equal(alarm,null);
  let promise;await worker.scheduled({},env,{waitUntil:p=>{promise=p}});await promise;assert.equal(alarm,null,'Watchdog cannot start a stopped monitor');
  assert.equal((await worker.fetch(req('/start'),env)).status,200);assert.ok(alarm>Date.now());const firstAlarm=alarm;
  await worker.fetch(req('/start'),env);assert.equal(alarm,firstAlarm,'Repeated start does not postpone the scheduled check');
- const at=Date.now();alarm=null;await monitor.alarm();assert.ok(alarm>=at+20000&&alarm<at+20100);assert.equal(calls,1);
+ const at=Date.now();alarm=null;await monitor.alarm();assert.ok(alarm>=at+8000&&alarm<at+8100);assert.equal(calls,1);
  assert.equal((await (await worker.fetch(req('/health'),env)).json()).healthy,true);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,true,'Restart restores enabled state');
  fail=true;alarm=null;await monitor.alarm();const health=await (await worker.fetch(req('/health'),env)).json();assert.equal(health.healthy,false);assert.match(health.error,/access/);assert.ok(alarm>Date.now(),'Access failures leave future checks scheduled');
@@ -49,19 +49,19 @@ try{
  assert.equal(Object.hasOwn(summary,'callerCount'),false);
  monitor.health.stableSince=Date.now()-30*60*1000-1000;
  await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,15000,'A sustained healthy period earns the faster small-list cadence');
- assert.ok(alarm>=Date.now()+14900&&alarm<=Date.now()+15100);
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,6000,'A sustained healthy period earns the faster small-list cadence');
+ assert.ok(alarm>=Date.now()+5900&&alarm<=Date.now()+6100);
  callerCount=10;alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'Changing to ten callers restarts the healthy window');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,8000,'Changing to ten callers restarts the healthy window');
  monitor.health.stableSince=Date.now()-10*60*1000-1000;
  alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,15000,'Ten callers can earn faster checks after sustained healthy reads');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,6000,'Ten callers can earn faster checks after sustained healthy reads');
  fail=true;alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'A failed check drops the faster cadence');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,8000,'A failed check drops the faster cadence');
  fail=false;monitor.health.stableSince=Date.now()-10*60*1000-1000;
  alarm=null;await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'Recovery needs a fresh healthy period');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,8000,'Recovery needs a fresh healthy period');
  await worker.fetch(req('/stop'),env);assert.equal(alarm,null);const before=calls;await monitor.alarm();assert.equal(calls,before);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,false,'Stop survives a restart');
- console.log('Cloudflare scheduler: adaptive fifteen-second cadence for ten callers, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
+ console.log('Cloudflare scheduler: adaptive six-second cadence for ten callers, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
 }finally{globalThis.fetch=original}
