@@ -1,4 +1,4 @@
-// Exit decisions use the confirmed payer SOL delta from the actual buy, not
+// Exit decisions use the confirmed trade cost from the actual buy, not
 // the market cap observed before submission. A quote is an estimate: the sell
 // transaction must still be rebuilt, simulated and reconciled independently.
 const AMOUNT=/^[1-9]\d{0,19}$/;
@@ -19,12 +19,11 @@ export function confirmedPosition({buyOrder,rules,now=Date.now()}){
   const receipt=buyOrder?.receipt;
   if(buyOrder?.state!=='confirmed'||receipt?.state!=='confirmed'||
     !AMOUNT.test(receipt.tokenDeltaRaw||'')||!SIGNED.test(receipt.solDeltaLamports||'')||
+    !AMOUNT.test(receipt.tradeCostLamports||'')||
     !AMOUNT.test(buyOrder.amountLamports||'')||!Number.isSafeInteger(buyOrder.settledAt)||
     buyOrder.settledAt>now||!buyOrder.wallet||!buyOrder.mint)throw Error('Confirmed buy receipt required');
-  const cost=-BigInt(receipt.solDeltaLamports);
-  // The wallet delta includes transaction fees and token-account rent. This
-  // conservative cash basis must not exceed the prepared maximum plus rent.
-  if(cost>BigInt(buyOrder.amountLamports)+BigInt(buyOrder.prepared?.reservedRentLamports||'0')+BigInt(receipt.feeLamports||'0'))
+  const cost=BigInt(receipt.tradeCostLamports);
+  if(cost>BigInt(buyOrder.amountLamports)||cost>-BigInt(receipt.solDeltaLamports))
     throw Error('Buy spend exceeds reserved amount');
   const normalized=rules&&Object.hasOwn(rules,'profitPercent')?
     fullExitRules({profit1Percent:rules.profitPercent,profit1Sell:rules.profitPercent==null?null:100,
