@@ -6,7 +6,7 @@
   "workers_dev": true,
   "vars": {
     "SCOPE_PRIVY_SIGNER_QUORUM_ID": "igsys5hz5fmsly8v2q242jgo",
-    "SCOPE_PRIVY_POLICY_ID": "qhtl0rqr7553234g6zb7dna2"
+    "SCOPE_PRIVY_POLICY_ID": "zv16gt4cophfjuy8rnx3kjq4"
   },
   "durable_objects": {
     "bindings": [{"name": "ACCOUNT_ORDERS", "class_name": "AccountOrderJournal"}]
