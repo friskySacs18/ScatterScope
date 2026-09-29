@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
 import BN from 'bn.js';
-import {Keypair,PublicKey,VersionedTransaction,TransactionMessage} from '@solana/web3.js';
+import {Keypair,PublicKey,VersionedTransaction,TransactionMessage,TransactionInstruction} from '@solana/web3.js';
 import {PUMP_SDK} from '@pump-fun/pump-sdk';
 import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
 import {verifySignedTransaction} from './signed-transaction.js';
@@ -23,24 +23,40 @@ const badSig=VersionedTransaction.deserialize(Buffer.from(signed,'base64'));badS
 await assert.rejects(verifySignedTransaction({unsigned,signed:Buffer.from(badSig.serialize()).toString('base64'),wallet}),/Invalid wallet signature/);
 
 const now=Date.now();
-const prepared={transaction:unsigned,wallet,mint,side:'buy',quoteAt:now,tokenAmountRaw:'1000',maximumSpendLamports:'2000000',reservedRentLamports:'2000000',lastValidBlockHeight:900};
+const prepared={transaction:unsigned,wallet,mint,side:'buy',quoteAt:now,tokenAmountRaw:'1000',maximumSpendLamports:'2000000',reservedRentLamports:'2500000',lastValidBlockHeight:900};
 function store(){const map=new Map([['order:'+orderId,{id:orderId,accountId,walletId,wallet,mint,amountLamports:'2000000',exitRules:{profitPercent:25,stopPercent:25},state:'reserved',signature:null}]]);let lock=Promise.resolve();return {map,get:async key=>map.get(key),transaction(fn){const result=lock.then(async()=>{const staged=new Map(map);const value=await fn({get:async k=>staged.get(k),put:async(k,v)=>staged.set(k,v)});map.clear();for(const [k,v]of staged)map.set(k,v);return value});lock=result.catch(()=>{});return result}}}
 const storage=store();let signs=0,sends=0;
 const args={storage,orderId,prepared,authorize:async()=>true,sign:async()=>{signs++;return signed},rpcUrl,now:()=>now,fetcher:async(url,init)=>{sends++;const journal=await storage.get('order:'+orderId);assert.equal(journal.signedTransaction,signed,'Signed bytes durable BEFORE submission');assert.equal(journal.signature,identity.signature);assert.equal(JSON.parse(init.body).method,'sendTransaction');throw Error('RPC accepted but response lost')}};
 const outcomes=await Promise.all(Array.from({length:200},()=>executeReservedOrder(args)));
 assert.equal(signs,1);assert.equal(sends,1);assert.equal(outcomes.filter(x=>x.state==='unknown').length,1);
 assert.equal((await executeReservedOrder(args)).state,'broadcast');assert.equal(signs,1);
-const final={slot:123,transaction:[signed,'base64'],meta:{err:null,fee:5000,preBalances:[10000000],postBalances:[7995000],preTokenBalances:[],postTokenBalances:[{accountIndex:1,mint,owner:wallet,uiTokenAmount:{amount:'1000'}}]}};
+const preBalances=Array(tx.message.staticAccountKeys.length).fill(0),postBalances=[...preBalances];
+preBalances[0]=10000000;postBalances[0]=7995000;
+const final={slot:123,transaction:[signed,'base64'],meta:{err:null,fee:5000,preBalances,postBalances,preTokenBalances:[],postTokenBalances:[{accountIndex:1,mint,owner:wallet,uiTokenAmount:{amount:'1000'}}]}};
 const fetcher=async(url,init)=>{const method=JSON.parse(init.body).method;return Response.json({jsonrpc:'2.0',id:1,result:method==='getSignatureStatuses'?{value:[{confirmationStatus:'finalized',err:null}]}:final})};
 const result=await reconcileOrder({storage,orderId,rpcUrl,fetcher});assert.equal(result.state,'confirmed');assert.equal(result.receipt.tokenDeltaRaw,'1000');
 assert.equal((await storage.get('order:'+orderId)).state,'confirmed');
-assert.equal((await storage.get('position:'+mint)).costLamports,'2005000');
+assert.equal((await storage.get('position:'+mint)).costLamports,'2000000');
 assert.equal((await storage.get('position:'+mint)).amountRaw,'1000');
 await reconcileOrder({storage,orderId,rpcUrl,fetcher:()=>{throw Error('Should not requery settled order')}});
 const order=await storage.get('order:'+orderId);
 assert.throws(()=>verifySettlement(order,{...final,transaction:[unsigned,'base64']}),/mismatch/);
 assert.throws(()=>verifySettlement(order,{...final,meta:{...final.meta,postTokenBalances:[]}}),/Buy settlement/);
-assert.throws(()=>verifySettlement(order,{...final,meta:{...final.meta,postBalances:[1000]}}),/Buy settlement/);
+assert.throws(()=>verifySettlement(order,{...final,meta:{...final.meta,postBalances:[1000]}}),/balance evidence/);
+const associated=new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+const token=new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ata=PublicKey.findProgramAddressSync([pair.publicKey.toBuffer(),token.toBuffer(),new PublicKey(mint).toBuffer()],associated)[0].toBase58();
+const rentTx=new VersionedTransaction(new TransactionMessage({payerKey:pair.publicKey,recentBlockhash:mint,
+  instructions:[ix,new TransactionInstruction({programId:associated,keys:[{pubkey:new PublicKey(ata),isSigner:false,isWritable:true}],data:Buffer.alloc(0)})]}).compileToV0Message());
+rentTx.sign([pair]);const rentSigned=Buffer.from(rentTx.serialize()).toString('base64');
+const rentPre=Array(rentTx.message.staticAccountKeys.length).fill(0),rentPost=[...rentPre];
+rentPre[0]=10000000;rentPost[0]=5955720;
+const ataIndex=rentTx.message.staticAccountKeys.findIndex(key=>key.toBase58()===ata);
+assert.ok(ataIndex>0);rentPost[ataIndex]=2039280;
+const rentReceipt=verifySettlement({...order,signedTransaction:rentSigned},{...final,transaction:[rentSigned,'base64'],
+  meta:{...final.meta,preBalances:rentPre,postBalances:rentPost}});
+assert.equal(rentReceipt.rentPaidLamports,'2039280');
+assert.equal(rentReceipt.tradeCostLamports,'2000000');
 assert.throws(()=>verifySettlement(order,{...final,meta:{...final.meta,postTokenBalances:[{accountIndex:1,mint,uiTokenAmount:{amount:'1000'}}]}}),/Missing token owner/);
 const noReceipt=store();await executeReservedOrder({...args,storage:noReceipt});
 assert.equal((await reconcileOrder({storage:noReceipt,orderId,rpcUrl,fetcher:async(url,init)=>Response.json({jsonrpc:'2.0',id:1,result:JSON.parse(init.body).method==='getSignatureStatuses'?{value:[{confirmationStatus:'finalized',err:null}]}:null})})).state,'reconciliation_pending');
