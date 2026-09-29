@@ -65,6 +65,12 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
       const position=confirmedPosition({buyOrder:settled,rules:current.exitRules,now:settledAt});
       await txn.put('position:'+current.mint,position);
     }
+    if(current.side==='sell'&&receipt.state==='confirmed'){
+      const key='position:'+current.mint,position=await txn.get(key);
+      if(!position||position.state!=='open'||position.buyOrderId!==current.buyOrderId||
+        position.amountRaw!==current.amountRaw)throw Error('Settled sell position mismatch');
+      await txn.put(key,{...position,state:'closed',closedAt:settledAt,sellOrderId:orderId});
+    }
     await txn.put('order:'+orderId,settled);
   });
   return {state:receipt.state,orderId,signature:order.signature,receipt};
