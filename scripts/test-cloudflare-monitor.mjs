@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createHmac} from 'node:crypto';
 import worker,{ScopeMonitor} from '../monitor/cloudflare/worker.js';
-const data=new Map();let alarm=null,calls=0,fail=false,throttle=false;
+const data=new Map();let alarm=null,calls=0,fail=false,throttle=false,callerCount=2;
 const storage={async get(k){return data.get(k)},async put(k,v){data.set(k,structuredClone(v))},async getAlarm(){return alarm},async setAlarm(v){alarm=v},async deleteAlarm(){alarm=null}};
 const env={SCOPE_MONITOR_URL:'https://scopetrade.live/api/automation/monitor-tick',SCOPE_MONITOR_SECRET:'test-only-shared-monitor-secret-123456789',MONITOR_CONTROL_TOKEN:'test-only-control-token-123456789012345'};
 const create=()=>new ScopeMonitor({storage,blockConcurrencyWhile:fn=>fn()},env);let monitor=create();
@@ -11,11 +11,11 @@ const original=globalThis.fetch;
 globalThis.fetch=async(url,options)=>{
  calls++;assert.equal(String(url),env.SCOPE_MONITOR_URL);assert.equal(options.redirect,'manual');
  const at=options.headers['x-scope-timestamp'];assert.equal(options.headers['x-scope-signature'],createHmac('sha256',env.SCOPE_MONITOR_SECRET).update(at+'.{}').digest('hex'));
- return throttle?Response.json({retryAfterMs:120000},{status:429}):fail?new Response('login',{status:302,headers:{location:'https://elsewhere.example'}}):Response.json({checked:true,callerCount:2,executionEnabled:false});
+ return throttle?Response.json({retryAfterMs:120000},{status:429}):fail?new Response('login',{status:302,headers:{location:'https://elsewhere.example'}}):Response.json({checked:true,callerCount,executionEnabled:false});
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v7',intervalMs:20000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v8',intervalMs:20000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
  assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,20000);
@@ -51,6 +51,11 @@ try{
  await monitor.alarm();
  assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,15000,'A sustained healthy period earns the faster small-list cadence');
  assert.ok(alarm>=Date.now()+14900&&alarm<=Date.now()+15100);
+ callerCount=10;alarm=null;await monitor.alarm();
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'Changing to ten callers restarts the healthy window');
+ monitor.health.stableSince=Date.now()-10*60*1000-1000;
+ alarm=null;await monitor.alarm();
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,15000,'Ten callers can earn faster checks after sustained healthy reads');
  fail=true;alarm=null;await monitor.alarm();
  assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'A failed check drops the faster cadence');
  fail=false;monitor.health.stableSince=Date.now()-10*60*1000-1000;
@@ -58,5 +63,5 @@ try{
  assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'Recovery needs a fresh healthy period');
  await worker.fetch(req('/stop'),env);assert.equal(alarm,null);const before=calls;await monitor.alarm();assert.equal(calls,before);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,false,'Stop survives a restart');
- console.log('Cloudflare scheduler: adaptive fifteen-second small-list cadence, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
+ console.log('Cloudflare scheduler: adaptive fifteen-second cadence for ten callers, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
 }finally{globalThis.fetch=original}
