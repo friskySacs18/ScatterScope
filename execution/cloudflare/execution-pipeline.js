@@ -2,7 +2,7 @@ import {beginSigning} from './order-journal.js';
 import {verifySignedTransaction} from './signed-transaction.js';
 import {inspectPumpV2Transaction} from './inspect-pump-v2.js';
 import {inspectPumpAmmSellTransaction,inspectPumpAmmBuyTransaction} from './inspect-pump-amm.js';
-import {broadcastRecordedTransaction,finalizedStatus,finalizedTransaction} from './rpc-transport.js';
+import {broadcastRecordedTransaction,finalizedStatus,finalizedTransaction,recordedTransactionExpiry} from './rpc-transport.js';
 import {verifySettlement} from './settlement.js';
 import {confirmedPosition} from './position-exit.js';
 import {recordCallerExit} from './caller-loss-alert.js';
@@ -57,7 +57,30 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
   if(!order)return {state:'missing',orderId};
   if(order.state!=='broadcast'||!order.signedTransaction)return {state:order.state,orderId};
   const status=await finalizedStatus({signature:order.signature,rpcUrl,fetcher});
-  if(!['confirmed','failed'].includes(status.state))return {...status,orderId};
+  if(!['confirmed','failed'].includes(status.state)){
+    if(status.state==='pending'){
+      const proof=await recordedTransactionExpiry({signature:order.signature,encoded:order.signedTransaction,
+        lastValidBlockHeight:order.prepared?.lastValidBlockHeight,rpcUrl,fetcher});
+      if(proof){
+        const expired=await storage.transaction(async txn=>{
+          const current=await txn.get('order:'+orderId);
+          if(current?.state!=='broadcast'||current.signature!==order.signature)return false;
+          await txn.put('order:'+orderId,{...current,state:'expired',expiryProof:proof,settledAt:now()});
+          if(current.side==='sell'&&await txn.get('sell:'+current.mint)===orderId){
+            await txn.delete('sell:'+current.mint);
+            const key='sell-failures:'+current.mint;
+            await txn.put(key,Math.min(3,Number(await txn.get(key)||0)+1));
+          }
+          return true;
+        });
+        if(expired)return {state:'expired',orderId,signature:order.signature};
+        return {state:'reconciliation_pending',orderId};
+      }
+      // Retry exactly the recorded bytes, never rebuild/re-sign while unknown.
+      await broadcastRecordedTransaction({encoded:order.signedTransaction,recordedSignature:order.signature,rpcUrl,fetcher});
+    }
+    return {...status,orderId};
+  }
   let receipt;
   try{receipt=verifySettlement(order,await finalizedTransaction({signature:order.signature,rpcUrl,fetcher}))}
   catch{return {state:'reconciliation_pending',orderId,signature:order.signature}}
