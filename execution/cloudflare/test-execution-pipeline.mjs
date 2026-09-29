@@ -25,7 +25,7 @@ await assert.rejects(verifySignedTransaction({unsigned,signed:Buffer.from(badSig
 const now=Date.now();
 const prepared={transaction:unsigned,wallet,mint,side:'buy',quoteAt:now,tokenAmountRaw:'1000',maximumSpendLamports:'2000000',reservedRentLamports:'2500000',lastValidBlockHeight:900};
 function store(){const map=new Map([['order:'+orderId,{id:orderId,accountId,walletId,wallet,mint,amountLamports:'2000000',exitRules:{profitPercent:25,stopPercent:25},state:'reserved',signature:null}]]);let lock=Promise.resolve();return {map,get:async key=>map.get(key),transaction(fn){const result=lock.then(async()=>{const staged=new Map(map);const value=await fn({get:async k=>staged.get(k),put:async(k,v)=>staged.set(k,v)});map.clear();for(const [k,v]of staged)map.set(k,v);return value});lock=result.catch(()=>{});return result}}}
-const storage=store();let signs=0,sends=0;
+const storage=store();await storage.transaction(async txn=>{const order=await txn.get('order:'+orderId);await txn.put('order:'+orderId,{...order,signalId:'callout-12345'})});let signs=0,sends=0;
 const args={storage,orderId,prepared,authorize:async()=>true,sign:async()=>{signs++;return signed},rpcUrl,now:()=>now,fetcher:async(url,init)=>{sends++;const journal=await storage.get('order:'+orderId);assert.equal(journal.signedTransaction,signed,'Signed bytes durable BEFORE submission');assert.equal(journal.signature,identity.signature);assert.equal(JSON.parse(init.body).method,'sendTransaction');throw Error('RPC accepted but response lost')}};
 const outcomes=await Promise.all(Array.from({length:200},()=>executeReservedOrder(args)));
 assert.equal(signs,1);assert.equal(sends,1);assert.equal(outcomes.filter(x=>x.state==='unknown').length,1);
