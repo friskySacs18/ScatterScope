@@ -31,5 +31,26 @@ await assert.rejects(readOrderContext({ORDER_CONTEXT_TOKEN:contextToken},{accoun
 assert.equal(calledUrl,'https://scopetrade.live/api/automation/order-context');
 await assert.rejects(readOrderContext({}, {accountId:'did:privy:account123',signalId:'call-1'},'buy'),/not connected/);
 await assert.rejects(readOrderContext({ORDER_CONTEXT:{fetch:async()=>Response.json({allowed:true,accountId:'did:privy:someoneelse',signalId:'call-1',walletId:'a'.repeat(24),revision:'1',evidence:{}})}},{accountId:'did:privy:account123',signalId:'call-1'},'buy'),/rejected/);
+await assert.rejects(readOrderContext({ORDER_CONTEXT:{fetch:async request=>{
+  assert.equal(new URL(request.url).pathname,'/api/automation/order-context');
+  assert.deepEqual(await request.json(),{accountId:'did:privy:account123',signalId:'call-1',side:'sell'});
+  return Response.json({allowed:false});
+}}},{accountId:'did:privy:account123',signalId:'call-1'},'sell'),/rejected/);
 assert.equal((await runAccountOrder({env:{...base,SCOPE_EXECUTION_ENABLED:'false'},job:{},side:'buy',connection:{},storage:{}})).reason,'execution_disabled');
+const exitJob={accountId:'did:privy:account123',signalId:'callout-12345'};
+const exitEvidence={accountId:exitJob.accountId,signalId:exitJob.signalId,wallet:'11111111111111111111111111111111',mint:'So11111111111111111111111111111111111111112'};
+const exitContext={walletId:'a'.repeat(24),revision:'exit-revision',evidence:exitEvidence};
+const open={state:'open',accountId:exitJob.accountId,signalId:exitJob.signalId,wallet:exitEvidence.wallet,mint:exitEvidence.mint,
+  buyOrderId:crypto.randomUUID(),amountRaw:'1000',costLamports:'2000000',rules:{profitPercent:25,stopPercent:25}};
+const intent={state:'pending-verification',buyOrderId:open.buyOrderId,mint:open.mint,wallet:open.wallet};
+const exitStore={get:async key=>key==='position:'+open.mint?open:key==='exit-intent:'+open.mint?intent:undefined};
+let quoteCalls=0;
+const exitArgs={env:base,job:exitJob,side:'sell',storage:exitStore,connection:{},contextReader:async()=>exitContext,
+  quoteSell:async()=>{quoteCalls++;return {wallet:open.wallet,mint:open.mint,amountRaw:'1000',observedAt:Date.now(),expectedSolOutLamports:'2200000'}}};
+assert.equal((await runAccountOrder(exitArgs)).reason,'exit_target_not_currently_met');
+assert.equal(quoteCalls,1);
+assert.equal((await runAccountOrder({...exitArgs,storage:{get:async key=>key.startsWith('position:')?{...open,accountId:'did:privy:other-account'}:intent}})).reason,'verified_exit_intent_required');
+assert.equal(quoteCalls,1,'No quote or transaction builder runs for another account');
+assert.equal((await runAccountOrder({...exitArgs,storage:{get:async key=>key.startsWith('position:')?open:undefined}})).reason,'verified_exit_intent_required');
+assert.equal(quoteCalls,1,'A browser sell cannot bypass the recorded exit intent');
 console.log('PASS: service auth, kill switch, context binding, strict request fields, private account routing, cross-account context rejection');
