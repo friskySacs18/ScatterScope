@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import worker from './worker.js';
+import worker,{AccountOrderJournal} from './worker.js';
 import {readOrderContext,runAccountOrder} from './account-executor.js';
 import {serviceConfiguration} from './service-config.js';
 const token='service-test-token-that-is-not-a-real-secret';
@@ -27,6 +27,23 @@ assert.equal((await worker.fetch(canaryRequest({authorization:'Bearer '+token},{
 assert.equal(forwarded,0);
 assert.equal((await worker.fetch(canaryRequest({authorization:'Bearer '+token},validCanary),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,200);
 assert.equal(forwarded,1,'One-shot route reaches only the private per-account journal');
+const armRequest=new Request('https://executor.test/orders/canary/arm',{
+  method:'POST',headers:{authorization:'Bearer '+token},body:JSON.stringify({accountId:validCanary.accountId})});
+assert.equal((await worker.fetch(armRequest,{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,200);
+assert.equal(forwarded,2,'Arming routes only to the private per-account journal');
+const durable=new Map();let alarmAt=null;
+const storage={get:async key=>durable.get(key),put:async(key,value)=>durable.set(key,value),
+  getAlarm:async()=>alarmAt,setAlarm:async at=>{alarmAt=at}};
+const journal=new AccountOrderJournal({storage},{...base,ACCOUNT_ORDERS,ORDER_CONTEXT});
+const armed=await journal.fetch(new Request('https://internal/canary/arm',{
+  method:'POST',body:JSON.stringify({accountId:validCanary.accountId})}));
+assert.equal((await armed.json()).state,'armed');
+assert.ok(alarmAt>Date.now());
+assert.equal((await (await journal.fetch(new Request('https://internal/canary/status',{
+  method:'POST',body:'{}'}))).json()).state,'armed');
+durable.set('canary-attempt','a-prior-attempt');
+assert.equal((await journal.fetch(new Request('https://internal/canary/arm',{
+  method:'POST',body:JSON.stringify({accountId:validCanary.accountId})}))).status,409);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).blockers.includes('automatic_exit_path_not_verified'),true);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,RPC_URL:'https://untrusted.example/'}).executionEnabled,false);
 const contextToken='private-context-credential-just-for-this-test';
