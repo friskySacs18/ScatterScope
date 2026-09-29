@@ -24,10 +24,9 @@ const failingJournal=new AccountOrderJournal({storage:{get:async()=>{throw Error
   getAlarm:async()=>null,setAlarm:async timestamp=>{armedAt=timestamp}}},{RPC_URL:'https://rpc.example'});
 const before=Date.now();
 await assert.rejects(failingJournal.alarm(),/temporary storage failure/);
-assert.ok(armedAt>=before+19000&&armedAt<=Date.now()+21000,'A failed exit alarm is scheduled again');
+assert.ok(armedAt>=before+7000&&armedAt<=Date.now()+9000,'A failed exit alarm is scheduled again');
 console.log('Read-only exit observations persist one intent, report migration, and skip closed positions');
-
- // Exercise both price triggers through the production monitor and account
+// Exercise both price triggers through the production monitor and account
  // executor. The builder sentinel stops before reservation, signing or RPC.
  const {runAccountOrder}=await import('./account-executor.js');
  for(const [reason,value] of [['profit','2500000'],['stop','1500000']]){
