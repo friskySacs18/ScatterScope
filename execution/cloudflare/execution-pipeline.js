@@ -82,6 +82,12 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
       await recordCallerExit(txn,{position,buy,receipt,sellOrderId:orderId,settledAt});
       await txn.put(key,{...position,state:'closed',closedAt:settledAt,sellOrderId:orderId});
     }
+    if(current.side==='sell'&&receipt.state==='failed'){
+      // Only a finalized, on-chain failure is safe to retry. Unknown or
+      // pending signatures retain the reservation and signed bytes.
+      const sellKey='sell:'+current.mint;
+      if(await txn.get(sellKey)===orderId)await txn.delete(sellKey);
+    }
     await txn.put('order:'+orderId,settled);
   });
   return {state:receipt.state,orderId,signature:order.signature,receipt};

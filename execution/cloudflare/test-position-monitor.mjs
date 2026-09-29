@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {inspectOpenPositions} from './position-monitor.js';
+import {AccountOrderJournal} from './worker.js';
 
 const now=Date.now(),mint='mint-1',wallet='wallet-1',data=new Map();
 const storage={get:async k=>data.get(k),put:async(k,v)=>data.set(k,v),
@@ -18,4 +19,10 @@ await inspectOpenPositions({...args,quote:async()=>{throw Error('migrated_pool_r
 assert.equal(data.get('exit-observation:'+mint).reason,'migrated_pool_requires_pumpswap_exit');
 data.set('position:'+mint,{...data.get('position:'+mint),state:'closed'});
 assert.deepEqual(await inspectOpenPositions(args),{checked:0,triggered:0});
+let armedAt=null;
+const failingJournal=new AccountOrderJournal({storage:{get:async()=>{throw Error('temporary storage failure')},
+  getAlarm:async()=>null,setAlarm:async timestamp=>{armedAt=timestamp}}},{RPC_URL:'https://rpc.example'});
+const before=Date.now();
+await assert.rejects(failingJournal.alarm(),/temporary storage failure/);
+assert.ok(armedAt>=before+19000&&armedAt<=Date.now()+21000,'A failed exit alarm is scheduled again');
 console.log('Read-only exit observations persist one intent, report migration, and skip closed positions');

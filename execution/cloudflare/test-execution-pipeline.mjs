@@ -24,7 +24,7 @@ await assert.rejects(verifySignedTransaction({unsigned,signed:Buffer.from(badSig
 
 const now=Date.now();
 const prepared={transaction:unsigned,wallet,mint,side:'buy',quoteAt:now,tokenAmountRaw:'1000',maximumSpendLamports:'2000000',reservedRentLamports:'2500000',lastValidBlockHeight:900};
-function store(){const map=new Map([['order:'+orderId,{id:orderId,accountId,walletId,wallet,mint,amountLamports:'2000000',exitRules:{profitPercent:25,stopPercent:25},state:'reserved',signature:null}]]);let lock=Promise.resolve();return {map,get:async key=>map.get(key),transaction(fn){const result=lock.then(async()=>{const staged=new Map(map);const value=await fn({get:async k=>staged.get(k),put:async(k,v)=>staged.set(k,v)});map.clear();for(const [k,v]of staged)map.set(k,v);return value});lock=result.catch(()=>{});return result}}}
+function store(){const map=new Map([['order:'+orderId,{id:orderId,accountId,walletId,wallet,mint,amountLamports:'2000000',exitRules:{profitPercent:25,stopPercent:25},state:'reserved',signature:null}]]);let lock=Promise.resolve();return {map,get:async key=>map.get(key),transaction(fn){const result=lock.then(async()=>{const staged=new Map(map);const value=await fn({get:async k=>staged.get(k),put:async(k,v)=>staged.set(k,v),delete:async k=>staged.delete(k)});map.clear();for(const [k,v]of staged)map.set(k,v);return value});lock=result.catch(()=>{});return result}}}
 const storage=store();await storage.transaction(async txn=>{const order=await txn.get('order:'+orderId);await txn.put('order:'+orderId,{...order,signalId:'callout-12345'})});let signs=0,sends=0;
 const args={storage,orderId,prepared,authorize:async()=>true,sign:async()=>{signs++;return signed},rpcUrl,now:()=>now,fetcher:async(url,init)=>{sends++;const journal=await storage.get('order:'+orderId);assert.equal(journal.signedTransaction,signed,'Signed bytes durable BEFORE submission');assert.equal(journal.signature,identity.signature);assert.equal(JSON.parse(init.body).method,'sendTransaction');throw Error('RPC accepted but response lost')}};
 const outcomes=await Promise.all(Array.from({length:200},()=>executeReservedOrder(args)));
@@ -39,6 +39,16 @@ assert.equal((await storage.get('order:'+orderId)).state,'confirmed');
 assert.equal((await storage.get('position:'+mint)).costLamports,'2000000');
 assert.equal((await storage.get('position:'+mint)).amountRaw,'1000');
 await reconcileOrder({storage,orderId,rpcUrl,fetcher:()=>{throw Error('Should not requery settled order')}});
+const failedSellId=crypto.randomUUID();
+storage.map.set('order:'+failedSellId,{id:failedSellId,side:'sell',accountId,wallet,mint,buyOrderId:orderId,
+  amountRaw:'1000',state:'broadcast',signature:identity.signature,signedTransaction:signed});
+storage.map.set('sell:'+mint,failedSellId);
+const failedResult={...final,meta:{...final.meta,err:{InstructionError:[0,'Custom']}}};
+const failedFetcher=async(url,init)=>Response.json({jsonrpc:'2.0',id:1,result:JSON.parse(init.body).method==='getSignatureStatuses'?{value:[{confirmationStatus:'finalized',err:failedResult.meta.err}]}:failedResult});
+assert.equal((await reconcileOrder({storage,orderId:failedSellId,rpcUrl,fetcher:failedFetcher})).state,'failed');
+assert.equal(await storage.get('sell:'+mint),undefined,'Finalized failed sell releases only its reservation');
+assert.equal((await storage.get('position:'+mint)).state,'open','Failed sell leaves the position open for another exit attempt');
+assert.equal((await reconcileOrder({storage,orderId:failedSellId,rpcUrl,fetcher:()=>{throw Error('No repeated chain query')}})).state,'failed');
 const order=await storage.get('order:'+orderId);
 assert.throws(()=>verifySettlement(order,{...final,transaction:[unsigned,'base64']}),/mismatch/);
 assert.throws(()=>verifySettlement(order,{...final,meta:{...final.meta,postTokenBalances:[]}}),/Buy settlement/);
