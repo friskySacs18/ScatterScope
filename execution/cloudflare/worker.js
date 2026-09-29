@@ -7,7 +7,7 @@ import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 
-const BUILD='executor-pumpswap-exit-retry-v9';
+const BUILD='executor-one-shot-canary-v10';
 const reply=(body,status=200)=>Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
 const page=`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scope trade preflight</title><style>body{font:16px system-ui;background:#11151d;color:#f4f7ff;max-width:500px;margin:32px auto;padding:18px;line-height:1.5}label{display:block;margin:18px 0 7px}input,button{box-sizing:border-box;width:100%;padding:13px;border-radius:10px;border:1px solid #8894ae;font:inherit}button{background:#c6fb78;border:0;margin-top:22px;font-weight:700}p,small{color:#b5bfd1}output{display:block;white-space:pre-wrap;margin-top:20px}</style><h1>Unsigned trade check</h1><p>Checks one 0.002 SOL Pump buy against current chain state. This page cannot sign, submit, or enable orders.</p><form id="preflight" autocomplete="off"><label for="token">Operator token</label><input id="token" type="password" autocomplete="off" required><label for="wallet">Your Scope wallet address</label><input id="wallet" spellcheck="false" autocapitalize="off" required><label for="mint">Pump token mint address</label><input id="mint" spellcheck="false" autocapitalize="off" required><button>Check unsigned trade</button></form><output id="result" role="status"></output><script src="/canary/ui.js" defer></script></html>`;
 const pageScript=`const form=document.querySelector('#preflight'),output=document.querySelector('#result');form.addEventListener('submit',async event=>{event.preventDefault();const token=document.querySelector('#token').value.trim(),wallet=document.querySelector('#wallet').value.trim(),mint=document.querySelector('#mint').value.trim();document.querySelector('#token').value='';output.textContent='Checking current chain state…';form.querySelector('button').disabled=true;try{const response=await fetch('/canary/prepare',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token},body:JSON.stringify({wallet,mint}),cache:'no-store'});const result=await response.json();output.textContent=response.ok?'Unsigned trade simulated. Maximum spend: '+(Number(result.maximumSpendLamports)/1e9).toFixed(6)+' SOL. Token amount (raw): '+result.tokenAmountRaw+'. Simulated compute units: '+result.simulationUnits+'. No transaction was signed or sent.':response.status===401?'The token does not match the deployed CANARY_PREPARE_TOKEN runtime secret.':result.error||'Preflight unavailable.'}catch{output.textContent='Network check failed; no transaction was sent.'}finally{form.querySelector('button').disabled=false}});`;
@@ -31,7 +31,7 @@ export default {
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
       return reply({service:'scope-order-executor',build:BUILD,executionEnabled:config.executionEnabled,ordersSupported:true,
-        orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
+        orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
@@ -82,13 +82,19 @@ export default {
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/alerts',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
     }
-    if(['/orders/buy','/orders/sell'].includes(path)){
+    if(['/orders/buy','/orders/sell','/orders/canary/buy','/orders/canary/status'].includes(path)){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
       const token=env?.ORDER_SERVICE_TOKEN;
       if(typeof token!=='string'||token.length<32||!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),token))return reply({error:'Service authorization required',executionEnabled:false},401);
       const config=serviceConfiguration(env);
-      if(!config.executionEnabled)return reply({error:'Order service setup incomplete',blockers:config.blockers,executionEnabled:false},503);
+      if(path==='/orders/canary/buy'?!config.canaryAvailable:path==='/orders/canary/status'?false:!config.executionEnabled)
+        return reply({error:'Order service setup incomplete',blockers:config.blockers,executionEnabled:false},503);
       let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
+      if(path==='/orders/canary/status'){
+        if(!body||Object.keys(body).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Expected accountId only'},400);
+        const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
+        return stub.fetch(new Request('https://internal/canary/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+      }
       if(!body||Object.keys(body).sort().join(',')!=='accountId,signalId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||'')||!/^[A-Za-z0-9:_-]{1,128}$/.test(body.signalId||''))return reply({error:'Expected accountId and signalId only'},400);
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal'+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
@@ -123,7 +129,23 @@ export class AccountOrderJournal {
         const rows=await this.storage.list({prefix:'caller-alert:'});
         return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});
       }
-      if(path==='/orders/buy'||path==='/orders/sell')return reply(await runAccountOrder({storage:this.storage,env:this.env,job:body,side:path.endsWith('buy')?'buy':'sell'}));
+      if(path==='/canary/status'){
+        const buyId=await this.storage.get('canary-attempt');
+        if(!buyId)return reply({state:'not_started'});
+        const buy=await this.storage.get('order:'+buyId),position=buy?.mint?await this.storage.get('position:'+buy.mint):null;
+        const sellId=buy?.mint?await this.storage.get('sell:'+buy.mint):null;
+        const sell=sellId?await this.storage.get('order:'+sellId):null;
+        const sellFailures=buy?.mint?Number(await this.storage.get('sell-failures:'+buy.mint)||0):0;
+        return reply({state:sellFailures>=3&&position?.state==='open'?'exit_failed':
+          sell?.state==='confirmed'&&position?.state==='closed'?'completed':
+          buy?.state==='confirmed'?'exiting':buy?.state||'unavailable',
+          mint:buy?.mint||null,buy:{state:buy?.state||'unavailable',signature:buy?.signature||null},
+          sell:sell?{state:sell.state,signature:sell.signature||null}:null,
+          position:position?.state||null,sellFailures});
+      }
+      if(path==='/orders/buy'||path==='/orders/sell'||path==='/orders/canary/buy')
+        return reply(await runAccountOrder({storage:this.storage,env:this.env,job:body,
+          side:path.endsWith('buy')?'buy':'sell',canary:path==='/orders/canary/buy'}));
       return reply({error:'Unknown account operation'},404);
     }catch{return reply({error:'Order verification failed; no new attempt will be made for an uncertain order'},503)}
   }
@@ -140,19 +162,30 @@ export class AccountOrderJournal {
         const positions=await this.storage.list({prefix:'position:'});
         if(![...positions.values()].some(p=>p?.state==='open')){rearm=false;return}
         await inspectOpenPositions({storage:this.storage,rpcUrl:this.env.RPC_URL});
+        // A funded canary closes in full as soon as the confirmed buy exists.
+        // It is isolated from automatic callout dispatch and normal targets.
+        for(const position of positions.values())if(position?.state==='open'&&position.canary===true){
+          const key='exit-intent:'+position.mint;
+          if(!await this.storage.get(key))await this.storage.put(key,{state:'pending-verification',
+            buyOrderId:position.buyOrderId,mint:position.mint,wallet:position.wallet,reason:'canary_full_exit',observedAt:Date.now()});
+        }
         // Only the account's confirmed position and its observed exit intent
         // may start an automatic sell. The order host re-quotes, verifies the
         // full token balance, refreshes consent, and journals before signing.
-        if(serviceConfiguration(this.env).executionEnabled){
+        if(serviceConfiguration(this.env).executionEnabled||serviceConfiguration(this.env).canaryAvailable){
           const intents=await this.storage.list({prefix:'exit-intent:'});
           for(const [key,intent] of intents){
             const mint=key.slice('exit-intent:'.length),position=await this.storage.get('position:'+mint);
             if(intent?.state!=='pending-verification'||position?.state!=='open'||
               position.mint!==mint||position.buyOrderId!==intent.buyOrderId||
               !position.accountId||!position.signalId)continue;
+            const canary=position.canary===true;
+            if(Number(await this.storage.get('sell-failures:'+mint)||0)>=3)continue;
+            if(!canary&&!serviceConfiguration(this.env).executionEnabled)continue;
+            if(canary&&!serviceConfiguration(this.env).canaryAvailable)continue;
             try{
               const result=await runAccountOrder({storage:this.storage,env:this.env,
-                job:{accountId:position.accountId,signalId:position.signalId},side:'sell'});
+                job:{accountId:position.accountId,signalId:position.signalId},side:'sell',canary});
               if(result.state==='signing_unknown'||result.state==='broadcast'||result.state==='reconciliation_pending')break;
             }catch(error){console.error('Exit submission unavailable',String(error?.message||error))}
           }

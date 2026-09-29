@@ -87,6 +87,9 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
       // pending signatures retain the reservation and signed bytes.
       const sellKey='sell:'+current.mint;
       if(await txn.get(sellKey)===orderId)await txn.delete(sellKey);
+      const failuresKey='sell-failures:'+current.mint;
+      const prior=Number(await txn.get(failuresKey)||0);
+      await txn.put(failuresKey,Math.min(3,prior+1));
     }
     await txn.put('order:'+orderId,settled);
   });

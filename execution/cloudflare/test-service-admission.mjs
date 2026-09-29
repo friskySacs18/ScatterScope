@@ -18,6 +18,15 @@ assert.equal(forwarded,0);
 assert.equal((await worker.fetch(request({accountId:'did:privy:account123',signalId:'call-1'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,503);
 assert.equal(forwarded,0);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).executionEnabled,false);
+assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).canaryAvailable,true);
+const canaryRequest=(headers,body)=>new Request('https://executor.test/orders/canary/buy',{
+  method:'POST',headers,body:JSON.stringify(body)});
+const validCanary={accountId:'did:privy:account123',signalId:'callout-12345'};
+assert.equal((await worker.fetch(canaryRequest({'content-type':'application/json'},validCanary),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,401);
+assert.equal((await worker.fetch(canaryRequest({authorization:'Bearer '+token},{...validCanary,maxLamports:'999999999'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,400);
+assert.equal(forwarded,0);
+assert.equal((await worker.fetch(canaryRequest({authorization:'Bearer '+token},validCanary),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,200);
+assert.equal(forwarded,1,'One-shot route reaches only the private per-account journal');
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).blockers.includes('automatic_exit_path_not_verified'),true);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,RPC_URL:'https://untrusted.example/'}).executionEnabled,false);
 const contextToken='private-context-credential-just-for-this-test';
@@ -37,6 +46,10 @@ await assert.rejects(readOrderContext({ORDER_CONTEXT:{fetch:async request=>{
   return Response.json({allowed:false});
 }}},{accountId:'did:privy:account123',signalId:'call-1'},'sell'),/rejected/);
 assert.equal((await runAccountOrder({env:{...base,SCOPE_EXECUTION_ENABLED:'false'},job:{},side:'buy',connection:{},storage:{}})).reason,'execution_disabled');
+await assert.rejects(runAccountOrder({env:{...base,SCOPE_EXECUTION_ENABLED:'false',SCOPE_ORDER_KILL_SWITCH:'true'},
+  job:validCanary,side:'buy',canary:true,connection:{},storage:{get:async()=>undefined},
+  contextReader:async()=>({walletId:'a'.repeat(24),revision:'r',evidence:{accountId:validCanary.accountId,
+    signalId:validCanary.signalId,canary:true,maxLamports:'3000000'}})}),/Canary context rejected/);
 const exitJob={accountId:'did:privy:account123',signalId:'callout-12345'};
 const exitEvidence={accountId:exitJob.accountId,signalId:exitJob.signalId,wallet:'11111111111111111111111111111111',mint:'So11111111111111111111111111111111111111112'};
 const exitContext={walletId:'a'.repeat(24),revision:'exit-revision',evidence:exitEvidence};
@@ -49,8 +62,14 @@ const exitArgs={env:base,job:exitJob,side:'sell',storage:exitStore,connection:{}
   quoteSell:async()=>{quoteCalls++;return {wallet:open.wallet,mint:open.mint,amountRaw:'1000',observedAt:Date.now(),expectedSolOutLamports:'2200000'}}};
 assert.equal((await runAccountOrder(exitArgs)).reason,'exit_target_not_currently_met');
 assert.equal(quoteCalls,1);
+let canarySellPrepared=0;
+await assert.rejects(runAccountOrder({...exitArgs,canary:true,
+  storage:{get:async key=>key==='position:'+open.mint?{...open,canary:true}:key==='exit-intent:'+open.mint?intent:undefined},
+  contextReader:async()=>({...exitContext,evidence:{...exitEvidence,canary:true}}),
+  prepareSell:async()=>{canarySellPrepared++;throw Error('canary_sell_builder_reached')}}),/canary_sell_builder_reached/);
+assert.equal(canarySellPrepared,1,'Confirmed canary may exit immediately without waiting for profit or stop');
 assert.equal((await runAccountOrder({...exitArgs,storage:{get:async key=>key.startsWith('position:')?{...open,accountId:'did:privy:other-account'}:intent}})).reason,'verified_exit_intent_required');
-assert.equal(quoteCalls,1,'No quote or transaction builder runs for another account');
+assert.equal(quoteCalls,2,'No quote or transaction builder runs for another account');
 assert.equal((await runAccountOrder({...exitArgs,storage:{get:async key=>key.startsWith('position:')?open:undefined}})).reason,'verified_exit_intent_required');
-assert.equal(quoteCalls,1,'A browser sell cannot bypass the recorded exit intent');
+assert.equal(quoteCalls,2,'A browser sell cannot bypass the recorded exit intent');
 console.log('PASS: service auth, kill switch, context binding, strict request fields, private account routing, cross-account context rejection');

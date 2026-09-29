@@ -47,6 +47,7 @@ const failedResult={...final,meta:{...final.meta,err:{InstructionError:[0,'Custo
 const failedFetcher=async(url,init)=>Response.json({jsonrpc:'2.0',id:1,result:JSON.parse(init.body).method==='getSignatureStatuses'?{value:[{confirmationStatus:'finalized',err:failedResult.meta.err}]}:failedResult});
 assert.equal((await reconcileOrder({storage,orderId:failedSellId,rpcUrl,fetcher:failedFetcher})).state,'failed');
 assert.equal(await storage.get('sell:'+mint),undefined,'Finalized failed sell releases only its reservation');
+assert.equal(await storage.get('sell-failures:'+mint),1,'Finalized failure counts toward the retry ceiling');
 assert.equal((await storage.get('position:'+mint)).state,'open','Failed sell leaves the position open for another exit attempt');
 assert.equal((await reconcileOrder({storage,orderId:failedSellId,rpcUrl,fetcher:()=>{throw Error('No repeated chain query')}})).state,'failed');
 const order=await storage.get('order:'+orderId);

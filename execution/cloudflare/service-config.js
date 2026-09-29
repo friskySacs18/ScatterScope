@@ -16,8 +16,11 @@ export function serviceConfiguration(env={}){
   const operator=operatorConfiguration(env),signer=signerConfiguration(env);
   const serviceTokenConfigured=typeof env.ORDER_SERVICE_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_SERVICE_TOKEN);
   const contextConfigured=!!env.ORDER_CONTEXT?.fetch||typeof env.ORDER_CONTEXT_TOKEN==='string'&&/^[\x21-\x7e]{32,256}$/.test(env.ORDER_CONTEXT_TOKEN),journalConfigured=!!env.ACCOUNT_ORDERS;
+  // One signed-in website request may start exactly one 0.002 SOL test order.
+  // This does not enable the background scanner or general order endpoints.
+  const canaryAvailable=rpcConfigured&&signer.configured&&serviceTokenConfigured&&contextConfigured&&journalConfigured;
   const executionEnabled=exitPathVerified&&rpcConfigured&&signer.configured&&serviceTokenConfigured&&contextConfigured&&journalConfigured&&env.SCOPE_EXECUTION_ENABLED==='true'&&env.SCOPE_ORDER_KILL_SWITCH==='false';
-  return {rpcConfigured,operator,signer,exitPathVerified,canaryPreparationConfigured:rpcConfigured&&operator.configured,
+  return {rpcConfigured,operator,signer,exitPathVerified,canaryAvailable,canaryPreparationConfigured:rpcConfigured&&operator.configured,
     journalConfigured,contextConfigured,serviceTokenConfigured,executionEnabled,
     blockers:[...(!exitPathVerified?['automatic_exit_path_not_verified']:[]),...(!rpcConfigured?['rpc_not_configured']:[]),
       ...signer.missing.map(x=>'missing_'+x),...signer.invalid.map(x=>'invalid_'+x),

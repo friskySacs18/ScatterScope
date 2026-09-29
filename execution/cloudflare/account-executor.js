@@ -24,24 +24,27 @@ export async function readOrderContext(env,job,side,fetcher=fetch){
   return context;
 }
 
-export async function runAccountOrder({storage,env,job,side,contextReader=readOrderContext,
+export async function runAccountOrder({storage,env,job,side,canary=false,contextReader=readOrderContext,
   connection=new Connection(env.RPC_URL,'confirmed'),prepareBuy=preparePumpCanaryBuy,prepareSell=preparePumpFullSell,
   prepareAmmBuy=preparePumpAmmBuy,prepareAmmSell=preparePumpAmmFullSell,
   quoteSell=quotePumpFullSell,signerFactory=createPrivySigner,fetcher=fetch}){
-  if(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false')return {state:'blocked',reason:'execution_disabled'};
-  const context=await contextReader(env,job,side),e=context.evidence;
+  if(!canary&&(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false'))return {state:'blocked',reason:'execution_disabled'};
+  const contextSide=canary?'canary-'+side:side;
+  const context=await contextReader(env,job,contextSide),e=context.evidence;
+  if(canary&&(e.canary!==true||side==='buy'&&e.maxLamports!=='2000000'))throw Error('Canary context rejected');
   if(e.accountId!==job.accountId||e.signalId!==job.signalId)throw Error('Evidence identity mismatch');
+  if(canary&&side==='buy'&&await storage.get('canary-attempt'))return {state:'blocked',reason:'canary_already_attempted'};
   let position;
   let exitVenue;
   if(side==='sell'){
     position=await storage.get('position:'+e.mint);
     const intent=await storage.get('exit-intent:'+e.mint);
     if(!position||position.state!=='open'||position.accountId!==job.accountId||
-      position.signalId!==job.signalId||position.wallet!==e.wallet||
+      position.signalId!==job.signalId||position.wallet!==e.wallet||Boolean(position.canary)!==canary||
       intent?.state!=='pending-verification'||intent.buyOrderId!==position.buyOrderId||
       intent.mint!==position.mint||intent.wallet!==position.wallet)return {state:'blocked',reason:'verified_exit_intent_required'};
     const snapshot=await quoteSell({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
-    if(!fullExitTrigger(position,snapshot).triggered)return {state:'blocked',reason:'exit_target_not_currently_met'};
+    if(!canary&&!fullExitTrigger(position,snapshot).triggered)return {state:'blocked',reason:'exit_target_not_currently_met'};
     exitVenue=snapshot.venue;
   }
   // One unresolved transaction per wallet prevents two fresh quotes spending
@@ -56,7 +59,7 @@ export async function runAccountOrder({storage,env,job,side,contextReader=readOr
     catch(error){if(error?.message!=='migrated_pool_requires_pumpswap_buy')throw error;
       prepared=await prepareAmmBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports});}
   }else prepared=await (exitVenue==='pump-amm'?prepareAmmSell:prepareSell)({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
-  const common={...e,walletId:context.walletId,executionEnabled:true,killSwitch:false,quoteAt:prepared.quoteAt,
+  const common={...e,walletId:context.walletId,canary,executionEnabled:true,killSwitch:false,quoteAt:prepared.quoteAt,
     fullTransactionVerified:true,simulationPassed:true,rpcHealthy:true,balanceLamports:prepared.balanceLamports,
     rentLamports:prepared.reservedRentLamports,maxFeeLamports:'100000',minimumReserveLamports:'500000'};
   const result=side==='buy'?await reserveBuy(storage,{...common,maxLamports:prepared.maximumSpendLamports}):
@@ -64,13 +67,15 @@ export async function runAccountOrder({storage,env,job,side,contextReader=readOr
       verifiedBalance:true,signerPolicyVerified:e.signerPolicyVerified===true,
       minSolOutLamports:prepared.minimumReceiveLamports});
   if(!result.reserved)return {state:'blocked',reason:result.reason,orderId:result.orderId};
+  if(canary&&side==='buy')await storage.put('canary-attempt',result.orderId);
   await storage.put('active-order',result.orderId);
   // Arm reconciliation before signing; restarts retain the order lock.
   await storage.setAlarm(Date.now()+10000);
   const outcome=await executeReservedOrder({storage,orderId:result.orderId,prepared,rpcUrl:env.RPC_URL,fetcher,
     sign:signerFactory(env),authorize:async()=>{
-      const fresh=await contextReader(env,job,side);
-      if(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false'||fresh.walletId!==context.walletId||
+      const fresh=await contextReader(env,job,contextSide);
+      if((!canary&&(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false'))||
+        canary&&(fresh.evidence.canary!==true||side==='buy'&&fresh.evidence.maxLamports!=='2000000')||fresh.walletId!==context.walletId||
         fresh.revision!==context.revision||fresh.evidence.wallet!==e.wallet||fresh.evidence.mint!==e.mint||
         fresh.evidence.ownerVerified!==true||fresh.evidence.consentVerified!==true||fresh.evidence.delegationVerified!==true)return false;
       if(side==='sell'){
