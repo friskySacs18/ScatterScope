@@ -2,15 +2,34 @@
   "name": "scope-order-executor",
   "main": "worker.js",
   "compatibility_date": "2026-09-25",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": true,
   "vars": {
     "SCOPE_PRIVY_SIGNER_QUORUM_ID": "igsys5hz5fmsly8v2q242jgo",
-    "SCOPE_PRIVY_POLICY_ID": "zv16gt4cophfjuy8rnx3kjq4"
+    "SCOPE_PRIVY_POLICY_ID": "zv16gt4cophfjuy8rnx3kjq4",
+    "SCOPE_EXECUTION_ENABLED": "true",
+    "SCOPE_ORDER_KILL_SWITCH": "false",
+    "SCOPE_AUTOMATION_PILOT_ACCOUNT": "did:privy:cmug0s8nw008u0cl28mwfyecg"
   },
   "durable_objects": {
-    "bindings": [{"name": "ACCOUNT_ORDERS", "class_name": "AccountOrderJournal"}]
+    "bindings": [
+      {
+        "name": "ACCOUNT_ORDERS",
+        "class_name": "AccountOrderJournal"
+      }
+    ]
   },
-  "migrations": [{"tag": "v1", "new_sqlite_classes": ["AccountOrderJournal"]}],
-  "observability": {"enabled": true}
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AccountOrderJournal"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
 }
