@@ -1,6 +1,6 @@
 # Scope: free-tier background monitor candidate
 
-This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target twenty seconds initially, fifteen seconds for up to two saved callers after ten healthy minutes, and thirty seconds after provider throttling, with no browser open. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and private health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
+This is a separate Cloudflare Worker with one SQLite-backed Durable Object. Its alarms target twenty seconds initially, fifteen seconds after ten healthy minutes at the current saved-caller count, and thirty seconds after provider throttling, with no browser open. A changed caller count restarts the healthy window. A once-a-minute watchdog repairs missing alarms; it never starts a stopped monitor. Start, stop and private health routes require a separate administrator token. Redirects are rejected, secrets are never placed in URLs, and no wallet key or order submission code is present.
 
 **Status: deployed and started on 25 September 2026; browser-independent ticks observed. Pump rate limiting blocks reliable ten-second coverage.** It is an observation scheduler, not a completed live trading engine. Timing is a target, not a guaranteed execution deadline.
 
