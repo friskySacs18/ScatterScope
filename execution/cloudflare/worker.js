@@ -263,7 +263,7 @@ export class AccountOrderJournal {
         // exit watcher. An unresolved signature remains locked above.
         if(rearm){
           const next=await this.storage.getAlarm();
-          const arm=await this.storage.get('canary-arm');
+          const arm=await this.storage.get('canary-arm').catch(()=>null);
           const delay=arm&&arm.expiresAt>Date.now()?2000:20000;
           if(next===null||next>Date.now()+delay)await this.storage.setAlarm(Date.now()+delay);
         }
