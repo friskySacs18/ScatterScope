@@ -15,7 +15,7 @@ globalThis.fetch=async(url,options)=>{
 };
 try{
  const version=await worker.fetch(new Request('https://monitor.test/version'),env);
- assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v6',intervalMs:20000,executionEnabled:false});
+ assert.deepEqual(await version.json(),{service:'scope-background-monitor',build:'adaptive-feed-metrics-v7',intervalMs:20000,executionEnabled:false});
  const publicStatus=await worker.fetch(new Request('https://monitor.test/status'),env);
  const publicBody=await publicStatus.json();
  assert.equal(publicBody.enabled,false);assert.equal(publicBody.executionEnabled,false);assert.equal(publicBody.intervalMs,20000);
@@ -49,8 +49,14 @@ try{
  assert.equal(Object.hasOwn(summary,'callerCount'),false);
  monitor.health.stableSince=Date.now()-30*60*1000-1000;
  await monitor.alarm();
- assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'A sustained healthy period tries the faster interval again');
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,15000,'A sustained healthy period earns the faster small-list cadence');
+ assert.ok(alarm>=Date.now()+14900&&alarm<=Date.now()+15100);
+ fail=true;alarm=null;await monitor.alarm();
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'A failed check drops the faster cadence');
+ fail=false;monitor.health.stableSince=Date.now()-10*60*1000-1000;
+ alarm=null;await monitor.alarm();
+ assert.equal((await (await worker.fetch(req('/health'),env)).json()).intervalMs,20000,'Recovery needs a fresh healthy period');
  await worker.fetch(req('/stop'),env);assert.equal(alarm,null);const before=calls;await monitor.alarm();assert.equal(calls,before);
  monitor=create();await monitor.ready;assert.equal(monitor.enabled,false,'Stop survives a restart');
- console.log('Cloudflare scheduler: twenty-second alarms, authenticated controls, restart recovery, watchdog, redirect rejection and persistent stop verified locally');
+ console.log('Cloudflare scheduler: adaptive fifteen-second small-list cadence, cooldown, authenticated controls, restart recovery and persistent stop verified locally');
 }finally{globalThis.fetch=original}
