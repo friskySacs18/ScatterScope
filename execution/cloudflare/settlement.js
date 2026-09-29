@@ -1,12 +1,13 @@
 import {decodeTransaction} from './signed-transaction.js';
 import {PublicKey} from '@solana/web3.js';
 import {userVolumeAccumulatorPda} from '@pump-fun/pump-sdk';
+import {canonicalPumpPoolPda} from '@pump-fun/pump-swap-sdk';
 
 const ASSOCIATED=new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 const TOKEN_PROGRAMS=['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
 
-function verifiedAccountRent(tx,meta,wallet,mint){
+function verifiedAccountRent(tx,meta,wallet,mint,venue){
   const keys=tx.message.staticAccountKeys;
   if(meta.preBalances?.length!==keys.length||meta.postBalances?.length!==keys.length)
     throw Error('Incomplete account balance evidence');
@@ -15,12 +16,14 @@ function verifiedAccountRent(tx,meta,wallet,mint){
     const token=new PublicKey(id);
     return PublicKey.findProgramAddressSync([user.toBuffer(),token.toBuffer(),coin.toBuffer()],ASSOCIATED)[0].toBase58();
   })]);
+  const pool=venue==='pump-amm'?canonicalPumpPoolPda(coin).toBase58():null;
   let paid=0n;
   for(let i=1;i<keys.length;i++){
     const before=meta.preBalances[i],after=meta.postBalances[i];
     if(!Number.isSafeInteger(before)||before<0||!Number.isSafeInteger(after)||after<0)
       throw Error('Invalid account balance evidence');
     if(possible.has(keys[i].toBase58())&&before===0&&after>0)paid+=BigInt(after);
+    if(pool===keys[i].toBase58()&&after>before)paid+=BigInt(after-before);
   }
   return paid;
 }
@@ -49,7 +52,7 @@ export function verifySettlement(order,result){
   const solDelta=BigInt(meta.postBalances[0])-BigInt(meta.preBalances[0]);
   const prepared=order.prepared;
   if((order.side||'buy')==='buy'){
-    const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint);
+    const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint,prepared.venue);
     const tradeCost=-solDelta-BigInt(meta.fee)-rent;
     if(tokenDelta!==BigInt(prepared.tokenAmountRaw)||solDelta>=0n||rent>BigInt(prepared.reservedRentLamports)||
       tradeCost<=0n||tradeCost>BigInt(prepared.maximumSpendLamports)||
@@ -57,6 +60,11 @@ export function verifySettlement(order,result){
       throw Error('Buy settlement exceeds expected amounts');
     return {state:'confirmed',slot:result.slot,feeLamports:String(meta.fee),tokenDeltaRaw:tokenDelta.toString(),
       solDeltaLamports:solDelta.toString(),tradeCostLamports:tradeCost.toString(),rentPaidLamports:rent.toString()};
-  }else if(tokenDelta!==-BigInt(order.amountRaw)||solDelta+BigInt(meta.fee)<BigInt(prepared.minimumReceiveLamports))throw Error('Sell settlement does not meet expected amounts');
+  }else{
+    const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint,prepared.venue);
+    if(tokenDelta!==-BigInt(order.amountRaw)||rent>BigInt(prepared.reservedRentLamports)||
+      solDelta+BigInt(meta.fee)+rent<BigInt(prepared.minimumReceiveLamports))
+      throw Error('Sell settlement does not meet expected amounts');
+  }
   return {state:'confirmed',slot:result.slot,feeLamports:String(meta.fee),tokenDeltaRaw:tokenDelta.toString(),solDeltaLamports:solDelta.toString()};
 }

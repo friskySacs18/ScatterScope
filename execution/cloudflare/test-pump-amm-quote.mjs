@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import BN from 'bn.js';
 import {Keypair,PublicKey} from '@solana/web3.js';
-import {canonicalPumpPoolPda} from '@pump-fun/pump-swap-sdk';
+import {canonicalPumpPoolPda,PUMP_AMM_PROGRAM_ID} from '@pump-fun/pump-swap-sdk';
 import {quotePumpAmmFullSell} from './pump-amm-quote.js';
 
 const wallet=Keypair.generate().publicKey.toBase58(),mint=Keypair.generate().publicKey.toBase58();
 const key=canonicalPumpPoolPda(new PublicKey(mint));
 const token=new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const state={poolKey:key,user:new PublicKey(wallet),baseMint:new PublicKey(mint),baseTokenProgram:token,quoteTokenProgram:token,
-  poolAccountInfo:{},userBaseTokenAccount:Keypair.generate().publicKey,poolBaseAmount:new BN('10000000'),
+  poolAccountInfo:{owner:PUMP_AMM_PROGRAM_ID},userBaseTokenAccount:Keypair.generate().publicKey,poolBaseAmount:new BN('10000000'),
   poolQuoteAmount:new BN('20000000'),globalConfig:{},baseMintAccount:{},feeConfig:null,
   pool:{index:0,baseMint:new PublicKey(mint),quoteMint:new PublicKey('So11111111111111111111111111111111111111112'),
     virtualQuoteReserves:new BN(0),coinCreator:Keypair.generate().publicKey,creator:Keypair.generate().publicKey}};

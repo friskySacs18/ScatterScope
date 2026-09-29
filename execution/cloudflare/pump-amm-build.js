@@ -33,12 +33,13 @@ export async function preparePumpAmmBuy({connection,wallet,mint,budgetLamports,
   if(!/^[1-9]\d{0,19}$/.test(amount||'')||!/^[1-9]\d{0,19}$/.test(maximum||'')||
     BigInt(amount)>18446744073709551615n||BigInt(maximum)>BigInt(budgetLamports))
     throw Error('Graduated buy exceeds saved amount or has no tokens');
-  const [balance,blockhash,tokenRent,wsolRent]=await Promise.all([
+  const [balance,blockhash,tokenRent,wsolRent,poolRent]=await Promise.all([
     connection.getBalance(user,'confirmed'),connection.getLatestBlockhash('confirmed'),
     state.userBaseAccountInfo?Promise.resolve(0):connection.getMinimumBalanceForRentExemption(512,'confirmed'),
-    state.userQuoteAccountInfo?Promise.resolve(0):connection.getMinimumBalanceForRentExemption(165,'confirmed')]);
-  if(!Number.isSafeInteger(balance)||balance<0||![tokenRent,wsolRent].every(x=>Number.isSafeInteger(x)&&x>=0)||
-    BigInt(balance)<BigInt(maximum)+BigInt(tokenRent)+BigInt(wsolRent)+RESERVE+FEE_ALLOWANCE||
+    state.userQuoteAccountInfo?Promise.resolve(0):connection.getMinimumBalanceForRentExemption(165,'confirmed'),
+    state.poolAccountInfo?.data?.length<300?connection.getMinimumBalanceForRentExemption(300,'confirmed'):Promise.resolve(0)]);
+  if(!Number.isSafeInteger(balance)||balance<0||![tokenRent,wsolRent,poolRent].every(x=>Number.isSafeInteger(x)&&x>=0)||
+    BigInt(balance)<BigInt(maximum)+BigInt(tokenRent)+BigInt(wsolRent)+BigInt(poolRent)+RESERVE+FEE_ALLOWANCE||
     !blockhash?.blockhash||!Number.isSafeInteger(blockhash.lastValidBlockHeight))
     throw Error('Graduated buy balance and rent reserve unavailable');
   const trade=await offlineSdk.buyQuoteInput(state,new BN(desired.toString()),5);
@@ -54,7 +55,7 @@ export async function preparePumpAmmBuy({connection,wallet,mint,budgetLamports,
   if(!simulation.passed)throw Error('Graduated buy simulation failed');
   return {transaction:encoded,wallet,mint,side:'buy',venue:'pump-amm',tokenProgram:state.baseTokenProgram.toBase58(),
     quoteAt,tokenAmountRaw:amount,maximumSpendLamports:maximum,
-    balanceLamports:String(balance),reservedRentLamports:String(BigInt(tokenRent)+BigInt(wsolRent)),
+    balanceLamports:String(balance),reservedRentLamports:String(BigInt(tokenRent)+BigInt(wsolRent)+BigInt(poolRent)),
     lastValidBlockHeight:blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }
 
@@ -72,11 +73,12 @@ export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,
   const min=estimate?.minQuote?.toString();
   if(!/^[1-9]\d{0,19}$/.test(min||'')||BigInt(min)>18446744073709551615n)
     throw Error('Migrated sell minimum unavailable');
-  const [balance,blockhash,rent]=await Promise.all([
+  const [balance,blockhash,rent,poolRent]=await Promise.all([
     connection.getBalance(user,'confirmed'),connection.getLatestBlockhash('confirmed'),
-    state.userQuoteAccountInfo?Promise.resolve(0):connection.getMinimumBalanceForRentExemption(165,'confirmed')]);
-  if(!Number.isSafeInteger(balance)||balance<0||!Number.isSafeInteger(rent)||rent<0||
-    BigInt(balance)<BigInt(rent)+RESERVE+FEE_ALLOWANCE||
+    state.userQuoteAccountInfo?Promise.resolve(0):connection.getMinimumBalanceForRentExemption(165,'confirmed'),
+    state.poolAccountInfo?.data?.length<300?connection.getMinimumBalanceForRentExemption(300,'confirmed'):Promise.resolve(0)]);
+  if(!Number.isSafeInteger(balance)||balance<0||![rent,poolRent].every(x=>Number.isSafeInteger(x)&&x>=0)||
+    BigInt(balance)<BigInt(rent)+BigInt(poolRent)+RESERVE+FEE_ALLOWANCE||
     !blockhash?.blockhash||!Number.isSafeInteger(blockhash.lastValidBlockHeight))
     throw Error('Migrated sell fee and rent reserve unavailable');
   if(state.userQuoteAccountInfo){
@@ -94,6 +96,6 @@ export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,
   const simulation=await simulate({encoded,rpcUrl:connection.rpcEndpoint,fetcher});
   if(!simulation.passed)throw Error('Migrated sell simulation failed');
   return {transaction:encoded,wallet,mint,side:'sell',venue:'pump-amm',quoteAt,tokenAmountRaw:amountRaw,
-    minimumReceiveLamports:min,reservedRentLamports:String(rent),balanceLamports:String(balance),
+    minimumReceiveLamports:min,reservedRentLamports:String(BigInt(rent)+BigInt(poolRent)),balanceLamports:String(balance),
     lastValidBlockHeight:blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }

@@ -1,6 +1,6 @@
 import BN from 'bn.js';
 import {PublicKey} from '@solana/web3.js';
-import {OnlinePumpAmmSdk,canonicalPumpPoolPda,sellBaseInput} from '@pump-fun/pump-swap-sdk';
+import {OnlinePumpAmmSdk,canonicalPumpPoolPda,sellBaseInput,PUMP_AMM_PROGRAM_ID} from '@pump-fun/pump-swap-sdk';
 
 const WSOL='So11111111111111111111111111111111111111112';
 const TOKEN='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -19,7 +19,7 @@ export async function verifiedPumpAmmPoolState({connection,wallet,mint,
     state.baseMint?.toBase58()!==mint||pool?.baseMint?.toBase58()!==mint||
     pool?.quoteMint?.toBase58()!==WSOL||state.quoteTokenProgram?.toBase58()!==TOKEN||
     ![TOKEN,TOKEN_2022].includes(state.baseTokenProgram?.toBase58())||
-    pool.index!==0||!state.poolAccountInfo||!state.userBaseTokenAccount||
+    pool.index!==0||state.poolAccountInfo?.owner?.toBase58()!==PUMP_AMM_PROGRAM_ID.toBase58()||!state.userBaseTokenAccount||
     !state.poolBaseAmount?.gt(new BN(0))||!state.poolQuoteAmount?.gt(new BN(0)))throw Error('Canonical migration pool unverified');
   return state;
 }

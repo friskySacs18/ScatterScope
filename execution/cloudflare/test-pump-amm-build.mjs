@@ -13,7 +13,7 @@ const baseAta=PublicKey.findProgramAddressSync([wallet.toBuffer(),TOKEN.toBuffer
 const key=()=>Keypair.generate().publicKey;
 const pool={index:0,baseMint:mint,quoteMint:WSOL,virtualQuoteReserves:new BN(0),coinCreator:key(),creator:key()};
 const state={poolKey:canonicalPumpPoolPda(mint),user:wallet,baseMint:mint,baseTokenProgram:TOKEN,quoteTokenProgram:TOKEN,
-  poolAccountInfo:{},userBaseTokenAccount:baseAta,userQuoteTokenAccount:wsolAta,userBaseAccountInfo:null,userQuoteAccountInfo:null,
+  poolAccountInfo:{owner:PUMP_AMM_PROGRAM_ID},userBaseTokenAccount:baseAta,userQuoteTokenAccount:wsolAta,userBaseAccountInfo:null,userQuoteAccountInfo:null,
   poolBaseAmount:new BN('10000000'),poolQuoteAmount:new BN('20000000'),pool,globalConfig:{},baseMintAccount:{},feeConfig:null};
 const accounts=[state.poolKey,wallet,key(),mint,WSOL,baseAta,wsolAta,key(),key(),key(),key(),key(),TOKEN,TOKEN,
   new PublicKey('11111111111111111111111111111111'),ATA,key(),PUMP_AMM_PROGRAM_ID].map((pubkey,i)=>({pubkey,isSigner:i===1,isWritable:true}));
@@ -22,6 +22,11 @@ const ix=(disc,amount,limit)=>{const data=Buffer.alloc(disc==='buy'?25:24);Buffe
 const close=new TransactionInstruction({programId:TOKEN,keys:[{pubkey:wsolAta,isSigner:false,isWritable:true},
   {pubkey:wallet,isSigner:false,isWritable:true},{pubkey:wallet,isSigner:true,isWritable:false}],data:Buffer.from([9])});
 const sync=new TransactionInstruction({programId:TOKEN,keys:[{pubkey:wsolAta,isSigner:false,isWritable:true}],data:Buffer.from([17])});
+const extend=new TransactionInstruction({programId:PUMP_AMM_PROGRAM_ID,keys:[
+  {pubkey:state.poolKey,isSigner:false,isWritable:true},{pubkey:wallet,isSigner:true,isWritable:true},
+  {pubkey:new PublicKey('11111111111111111111111111111111'),isSigner:false,isWritable:false},
+  {pubkey:key(),isSigner:false,isWritable:false},{pubkey:PUMP_AMM_PROGRAM_ID,isSigner:false,isWritable:false}],
+  data:Buffer.from('ea66c2cb96483ee5','hex')});
 const connection={rpcEndpoint:'https://rpc.example.test',getParsedAccountInfo:async key=>({value:{owner:TOKEN,data:{parsed:{info:{owner:wallet.toBase58(),mint:mint.toBase58(),state:'initialized',tokenAmount:{amount:'1000'}}}}}}),
   getBalance:async()=>10000000,getLatestBlockhash:async()=>({blockhash:key().toBase58(),lastValidBlockHeight:1000}),
   getMinimumBalanceForRentExemption:async()=>2000000};
@@ -34,6 +39,11 @@ assert.equal(buy.venue,'pump-amm');assert.equal(buy.maximumSpendLamports,'190000
 const sell=await preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',onlineSdk,simulate,
   quote:()=>({minQuote:new BN(1900000)}),offlineSdk:{sellBaseInput:async()=>[ix('sell',1000,1900000),close]}});
 assert.equal(sell.venue,'pump-amm');assert.equal(sell.minimumReceiveLamports,'1900000');
+const older={...state,poolAccountInfo:{owner:PUMP_AMM_PROGRAM_ID,data:Buffer.alloc(261)}};
+const olderSell=await preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',
+  onlineSdk:{swapSolanaState:async()=>older},simulate,quote:()=>({minQuote:new BN(1900000)}),
+  offlineSdk:{sellBaseInput:async()=>[extend,ix('sell',1000,1900000),close]}});
+assert.equal(olderSell.reservedRentLamports,'4000000','Older pool extension and temporary WSOL account have rent reserved');
 await assert.rejects(preparePumpAmmBuy({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),budgetLamports:'2000000',onlineSdk,
   quote:()=>({base:new BN(1000),maxQuote:new BN(3000000)})}),/exceeds/);
 await assert.rejects(preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'999',onlineSdk}),/full balance/);

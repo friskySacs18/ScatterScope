@@ -8,7 +8,14 @@ const TOKEN_2022='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const SYSTEM='11111111111111111111111111111111';
 const WSOL='So11111111111111111111111111111111111111112';
 const SELL='33e685a4017f83ad';
+const EXTEND='ea66c2cb96483ee5';
 const fail=reason=>({valid:false,reason});
+function isPoolExtend(program,data,ix,at,pool,wallet){
+  return program===PUMP_AMM_PROGRAM_ID.toBase58()&&data.length===8&&
+    Array.from(data,x=>x.toString(16).padStart(2,'0')).join('')===EXTEND&&
+    ix.accountKeyIndexes.length===5&&at(0)===pool&&at(1)===wallet&&at(2)===SYSTEM&&
+    at(4)===PUMP_AMM_PROGRAM_ID.toBase58();
+}
 
 export function inspectPumpAmmSellTransaction(encoded,{wallet,mint,amountRaw,limitLamports}){
   if(!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet||'')||
@@ -26,7 +33,7 @@ export function inspectPumpAmmSellTransaction(encoded,{wallet,mint,amountRaw,lim
   const wsolAta=PublicKey.findProgramAddressSync([new PublicKey(wallet).toBuffer(),new PublicKey(TOKEN).toBuffer(),new PublicKey(WSOL).toBuffer()],new PublicKey(ATA))[0].toBase58();
   const baseAtas=[TOKEN,TOKEN_2022].map(program=>[program,PublicKey.findProgramAddressSync([
     new PublicKey(wallet).toBuffer(),new PublicKey(program).toBuffer(),new PublicKey(mint).toBuffer()],new PublicKey(ATA))[0].toBase58()]);
-  let sells=0,closes=0,creates=0;
+  let sells=0,closes=0,creates=0,extensions=0;
   for(const ix of msg.compiledInstructions){
     const program=keys[ix.programIdIndex],data=ix.data,at=i=>keys[ix.accountKeyIndexes[i]];
     if(program===COMPUTE){
@@ -41,6 +48,10 @@ export function inspectPumpAmmSellTransaction(encoded,{wallet,mint,amountRaw,lim
       continue;
     }
     if(program===PUMP_AMM_PROGRAM_ID.toBase58()){
+      if(isPoolExtend(program,data,ix,at,pool,wallet)){
+        if(extensions++||sells||creates)return fail('unexpected_pool_extension');
+        continue;
+      }
       if(sells++||data.length!==24||Array.from(data.slice(0,8),x=>x.toString(16).padStart(2,'0')).join('')!==SELL||
         new DataView(data.buffer,data.byteOffset).getBigUint64(8,true)!==BigInt(amountRaw)||
         new DataView(data.buffer,data.byteOffset).getBigUint64(16,true)!==BigInt(limitLamports)||
@@ -77,7 +88,7 @@ export function inspectPumpAmmBuyTransaction(encoded,{wallet,mint,amountRaw,limi
   const pool=canonicalPumpPoolPda(new PublicKey(mint)).toBase58();
   const wsolAta=PublicKey.findProgramAddressSync([user.toBuffer(),new PublicKey(TOKEN).toBuffer(),new PublicKey(WSOL).toBuffer()],associated)[0].toBase58();
   const baseAta=PublicKey.findProgramAddressSync([user.toBuffer(),new PublicKey(tokenProgram).toBuffer(),new PublicKey(mint).toBuffer()],associated)[0].toBase58();
-  const created=new Set();let buys=0,transfers=0,syncs=0,closes=0;
+  const created=new Set();let buys=0,transfers=0,syncs=0,closes=0,extensions=0;
   for(const ix of msg.compiledInstructions){
     const program=keys[ix.programIdIndex],data=ix.data,at=i=>keys[ix.accountKeyIndexes[i]];
     if(program===COMPUTE){
@@ -105,6 +116,10 @@ export function inspectPumpAmmBuyTransaction(encoded,{wallet,mint,amountRaw,limi
       return fail('unexpected_token_instruction');
     }
     if(program===PUMP_AMM_PROGRAM_ID.toBase58()){
+      if(isPoolExtend(program,data,ix,at,pool,wallet)){
+        if(extensions++||buys||transfers||created.size)return fail('unexpected_pool_extension');
+        continue;
+      }
       if(buys++||!transfers||!syncs||data.length!==25||
         Array.from(data.slice(0,8),x=>x.toString(16).padStart(2,'0')).join('')!=='66063d1201daebea'||
         new DataView(data.buffer,data.byteOffset).getBigUint64(8,true)!==BigInt(amountRaw)||
