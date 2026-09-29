@@ -216,7 +216,7 @@ export class AccountOrderJournal {
         const id=await this.storage.get('active-order');
         if(id){
           const outcome=await reconcileOrder({storage:this.storage,orderId:id,rpcUrl:this.env.RPC_URL});
-          if(['confirmed','failed'].includes(outcome.state))await this.storage.delete('active-order');
+          if(['confirmed','failed','expired'].includes(outcome.state))await this.storage.delete('active-order');
           else return; // Unknown signatures stay locked; only reconcile again.
         }
         const arm=await this.storage.get('canary-arm');
