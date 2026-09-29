@@ -72,6 +72,16 @@ export default {
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/reconcile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orderId:body.orderId})}));
     }
+    if(path==='/orders/alerts'){
+      if(request.method!=='POST')return reply({error:'Method not allowed'},405);
+      const token=env?.ORDER_SERVICE_TOKEN;
+      if(typeof token!=='string'||token.length<32||!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),token))return reply({error:'Service authorization required'},401);
+      if(!env.ACCOUNT_ORDERS)return reply({error:'Order journal unavailable'},503);
+      let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
+      if(!body||Object.keys(body).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Invalid account'},400);
+      const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
+      return stub.fetch(new Request('https://internal/alerts',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+    }
     if(['/orders/buy','/orders/sell'].includes(path)){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
       const token=env?.ORDER_SERVICE_TOKEN;
@@ -108,6 +118,10 @@ export class AccountOrderJournal {
       if(path==='/reconcile'){
         if(!/^[0-9a-f-]{36}$/.test(body?.orderId||''))return reply({error:'Invalid order ID'},400);
         return reply(await reconcileOrder({storage:this.storage,orderId:body.orderId,rpcUrl:this.env.RPC_URL}));
+      }
+      if(path==='/alerts'){
+        const rows=await this.storage.list({prefix:'caller-alert:'});
+        return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});
       }
       if(path==='/orders/buy'||path==='/orders/sell')return reply(await runAccountOrder({storage:this.storage,env:this.env,job:body,side:path.endsWith('buy')?'buy':'sell'}));
       return reply({error:'Unknown account operation'},404);

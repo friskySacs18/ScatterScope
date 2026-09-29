@@ -51,8 +51,8 @@ export function verifySettlement(order,result){
   const tokenDelta=rawTokenTotal(meta.postTokenBalances,order.wallet,order.mint)-rawTokenTotal(meta.preTokenBalances,order.wallet,order.mint);
   const solDelta=BigInt(meta.postBalances[0])-BigInt(meta.preBalances[0]);
   const prepared=order.prepared;
+  const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint,prepared.venue);
   if((order.side||'buy')==='buy'){
-    const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint,prepared.venue);
     const tradeCost=-solDelta-BigInt(meta.fee)-rent;
     if(tokenDelta!==BigInt(prepared.tokenAmountRaw)||solDelta>=0n||rent>BigInt(prepared.reservedRentLamports)||
       tradeCost<=0n||tradeCost>BigInt(prepared.maximumSpendLamports)||
@@ -61,10 +61,9 @@ export function verifySettlement(order,result){
     return {state:'confirmed',slot:result.slot,feeLamports:String(meta.fee),tokenDeltaRaw:tokenDelta.toString(),
       solDeltaLamports:solDelta.toString(),tradeCostLamports:tradeCost.toString(),rentPaidLamports:rent.toString()};
   }else{
-    const rent=verifiedAccountRent(tx,meta,order.wallet,order.mint,prepared.venue);
     if(tokenDelta!==-BigInt(order.amountRaw)||rent>BigInt(prepared.reservedRentLamports)||
       solDelta+BigInt(meta.fee)+rent<BigInt(prepared.minimumReceiveLamports))
       throw Error('Sell settlement does not meet expected amounts');
   }
-  return {state:'confirmed',slot:result.slot,feeLamports:String(meta.fee),tokenDeltaRaw:tokenDelta.toString(),solDeltaLamports:solDelta.toString()};
+  return {state:'confirmed',slot:result.slot,feeLamports:String(meta.fee),tokenDeltaRaw:tokenDelta.toString(),solDeltaLamports:solDelta.toString(),rentPaidLamports:rent.toString()};
 }

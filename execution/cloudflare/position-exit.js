@@ -30,7 +30,7 @@ export function confirmedPosition({buyOrder,rules,now=Date.now()}){
   const normalized=rules&&Object.hasOwn(rules,'profitPercent')?
     fullExitRules({profit1Percent:rules.profitPercent,profit1Sell:rules.profitPercent==null?null:100,
       profit2Percent:null,profit2Sell:null,stopPercent:rules.stopPercent}):fullExitRules(rules);
-  return {state:'open',buyOrderId:buyOrder.id,accountId:buyOrder.accountId,signalId:buyOrder.signalId,wallet:buyOrder.wallet,mint:buyOrder.mint,
+  return {state:'open',buyOrderId:buyOrder.id,accountId:buyOrder.accountId,signalId:buyOrder.signalId,caller:buyOrder.caller||null,wallet:buyOrder.wallet,mint:buyOrder.mint,
     openedAt:buyOrder.settledAt,amountRaw:receipt.tokenDeltaRaw,costLamports:cost.toString(),rules:normalized};
 }
 

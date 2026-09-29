@@ -23,7 +23,7 @@ export async function reserveBuy(storage,evidence,now=Date.now()){
     const amount=BigInt(check.reservationLamports);
     if(reserved+amount>BigInt(evidence.dailyCapLamports))return {reserved:false,reason:'daily_budget_exceeded'};
     const orderId=crypto.randomUUID();
-    const order={id:orderId,accountId:evidence.accountId,signalId:evidence.signalId,mint:evidence.mint,wallet:evidence.wallet,walletId:evidence.walletId||null,
+    const order={id:orderId,accountId:evidence.accountId,signalId:evidence.signalId,mint:evidence.mint,caller:evidence.caller,wallet:evidence.wallet,walletId:evidence.walletId||null,
       amountLamports:amount.toString(),exitRules,state:'reserved',createdAt:now,signature:null};
     await txn.put('order:'+orderId,order);
     await txn.put(signalKey,orderId);

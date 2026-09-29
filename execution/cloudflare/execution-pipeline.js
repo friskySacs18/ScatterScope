@@ -5,6 +5,7 @@ import {inspectPumpAmmSellTransaction,inspectPumpAmmBuyTransaction} from './insp
 import {broadcastRecordedTransaction,finalizedStatus,finalizedTransaction} from './rpc-transport.js';
 import {verifySettlement} from './settlement.js';
 import {confirmedPosition} from './position-exit.js';
+import {recordCallerExit} from './caller-loss-alert.js';
 
 // Server-only entry point. The order must already have passed reserveBuy or
 // reserveFullSell using independently fetched evidence. Never expose prepared
@@ -76,6 +77,9 @@ export async function reconcileOrder({storage,orderId,rpcUrl,fetcher=fetch,now=D
       const key='position:'+current.mint,position=await txn.get(key);
       if(!position||position.state!=='open'||position.buyOrderId!==current.buyOrderId||
         position.amountRaw!==current.amountRaw)throw Error('Settled sell position mismatch');
+      const buy=await txn.get('order:'+current.buyOrderId);
+      if(!buy||buy.state!=='confirmed')throw Error('Confirmed buy missing for exit');
+      await recordCallerExit(txn,{position,buy,receipt,sellOrderId:orderId,settledAt});
       await txn.put(key,{...position,state:'closed',closedAt:settledAt,sellOrderId:orderId});
     }
     await txn.put('order:'+orderId,settled);
