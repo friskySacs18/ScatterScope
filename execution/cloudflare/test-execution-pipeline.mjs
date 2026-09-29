@@ -107,3 +107,22 @@ delegated=true;
 const wrongPolicy=createPrivySigner(env,{client,fetcher:async url=>Response.json(url.includes('/policies/')?{...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}:url.includes('/key_quorums/')?quorum:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]})});
 await assert.rejects(wrongPolicy({order,transaction:unsigned}),/policy incompatible/);assert.equal(signRequests,1);
 console.log('PASS: 200 duplicate requests, durable-before-send, signer uncertainty, altered bytes/signatures, expiry, revocation, account ownership, finalized balance reconciliation');
+
+
+function pendingStore(){const s=store();s.map.set('order:'+orderId,{id:orderId,side:'sell',mint,state:'broadcast',signature:identity.signature,signedTransaction:signed,prepared});s.map.set('sell:'+mint,orderId);return s;}
+let resent=0,expiredHeight=false,hashInvalid=false,statusVisible=false,offline=false;
+const pendingFetcher=async(url,init)=>{
+ const b=JSON.parse(init.body);if(offline)throw Error('offline');let result;
+ if(b.method==='getSignatureStatuses')result={value:[statusVisible?{confirmationStatus:'confirmed',err:null}:null]};
+ else if(b.method==='getBlockHeight')result=expiredHeight?901:899;
+ else if(b.method==='isBlockhashValid')result={value:!hashInvalid};
+ else if(b.method==='sendTransaction'){assert.equal(b.params[0],signed);resent++;result=identity.signature}
+ else throw Error('Unexpected RPC');return Response.json({jsonrpc:'2.0',id:1,result});
+};
+let ps=pendingStore();assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'pending');assert.equal(resent,1);assert.equal(await ps.get('sell:'+mint),orderId);
+expiredHeight=true;assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'pending');
+hashInvalid=true;statusVisible=true;assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'pending','Visible signature keeps lock');
+statusVisible=false;offline=true;assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'unknown');assert.equal(await ps.get('sell:'+mint),orderId);
+offline=false;assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'expired');assert.equal(await ps.get('sell:'+mint),undefined);assert.equal(await ps.get('sell-failures:'+mint),1);assert.equal((await ps.get('order:'+orderId)).signature,identity.signature);
+assert.equal((await reconcileOrder({storage:ps,orderId,rpcUrl,fetcher:pendingFetcher})).state,'expired');assert.equal(await ps.get('sell-failures:'+mint),1);
+console.log('PASS: exact-byte resubmission, finalized expiry proof, unknown locks, retained history and bounded sell retry');
