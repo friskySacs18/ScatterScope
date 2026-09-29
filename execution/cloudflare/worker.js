@@ -40,7 +40,7 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,sellTokenProgramLookup:'verified-mint-owner',executionEnabled:config.executionEnabled,ordersSupported:true,
+      return reply({service:'scope-order-executor',build:BUILD,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',executionEnabled:config.executionEnabled,ordersSupported:true,
         orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
