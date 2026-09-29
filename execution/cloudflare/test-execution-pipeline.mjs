@@ -77,6 +77,13 @@ assert.equal(verifiedSigningPolicy({...goodPolicy,owner_id:null}),true,'Dashboar
 assert.equal(verifiedSigningPolicy({...goodPolicy,owner_id:'wrong-quorum'}),false);
 assert.equal(verifiedSigningPolicy({...goodPolicy,rules:goodPolicy.rules.map(x=>({...x,method:'signAndSendTransaction'}))}),false);
 assert.equal(verifiedSigningPolicy({...goodPolicy,rules:[...goodPolicy.rules,{action:'ALLOW',method:'*',conditions:[]}]}),false);
+const tradePolicy={...goodPolicy,id:'abcdefghijklmnopqrstuvwx',rules:[
+  {...goodPolicy.rules[0],conditions:[{...goodPolicy.rules[0].conditions[0],value:[...goodPolicy.rules[0].conditions[0].value,
+    'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA','TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA','TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb']}]},
+  {...goodPolicy.rules[1],conditions:[{field_source:'solana_system_program_instruction',field:'Transfer.to',operator:'eq',value:'4dWv5mpSYfiw4iMjzgF51fF2eGchByQMTPpWibgZzYMz'}]}]};
+assert.equal(verifiedSigningPolicy(tradePolicy,tradePolicy.id),true);
+assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[tradePolicy.rules[0],goodPolicy.rules[1]]},tradePolicy.id),false);
+assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[tradePolicy.rules[0],{...tradePolicy.rules[1],conditions:[{...tradePolicy.rules[1].conditions[0],value:wallet}]}]},tradePolicy.id),false);
 const quorum={id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,authorization_threshold:1,authorization_keys:[{public_key:signerTestPublic.export({format:'der',type:'spki'}).toString('base64')}]};
 const ownerFetch=async url=>Response.json(url.includes('/policies/')?goodPolicy:url.includes('/key_quorums/')?quorum:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
 const sign=createPrivySigner(env,{client,fetcher:ownerFetch});

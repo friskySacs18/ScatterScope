@@ -4,6 +4,8 @@ import {createPrivateKey,createPublicKey} from 'node:crypto';
 const APP_ID='cmuejmq9g00eg0cla13182nah';
 const ID=/^[a-z0-9]{24}$/;
 const PUMP_PROGRAMS=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
+const TRADE_PROGRAMS=[...PUMP_PROGRAMS,'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA','TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA','TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
+const PILOT_WSOL_ATA='4dWv5mpSYfiw4iMjzgF51fF2eGchByQMTPpWibgZzYMz';
 const QUORUM_ID='igsys5hz5fmsly8v2q242jgo';
 const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 
@@ -36,7 +38,6 @@ export function signerConfiguration(env={}){
   const keyIssue=authorizationKeyIssue(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM);
   if(keyIssue)invalid.push('SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM');
   if(env.SCOPE_PRIVY_SIGNER_QUORUM_ID&&env.SCOPE_PRIVY_SIGNER_QUORUM_ID!==QUORUM_ID)invalid.push('SCOPE_PRIVY_SIGNER_QUORUM_ID');
-  if(env.SCOPE_PRIVY_POLICY_ID&&env.SCOPE_PRIVY_POLICY_ID!==POLICY_ID)invalid.push('SCOPE_PRIVY_POLICY_ID');
   const configured=missing.length===0&&invalid.length===0;
   return {configured,missing,invalid,keyIssue,
     publicKey:configured?authorizationKey(env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM).publicKey:null};
@@ -49,13 +50,17 @@ export function verifiedSigningPolicy(policy,expectedPolicyId=POLICY_ID,expected
   if(policy?.id!==expectedPolicyId||policy.chain_type!=='solana'||(policy.owner_id!=null&&policy.owner_id!==expectedQuorumId)||
     !Array.isArray(policy.rules)||policy.rules.length!==2)return false;
   const [program,transfer]=policy.rules;
-  if(program?.action!=='ALLOW'||program.method!=='signTransaction'||program.conditions?.length!==1||
-    transfer?.action!=='ALLOW'||transfer.method!=='signTransaction'||transfer.conditions?.length!==1)return false;
+  if(!policy.rules.every(rule=>rule.action==='ALLOW'&&rule.method==='signTransaction'&&rule.conditions?.length===1))return false;
   const allowed=program.conditions[0],limit=transfer.conditions[0];
-  return allowed.field_source==='solana_program_instruction'&&allowed.field==='programId'&&allowed.operator==='in'&&
-    Array.isArray(allowed.value)&&allowed.value.length===PUMP_PROGRAMS.length&&PUMP_PROGRAMS.every(id=>allowed.value.includes(id))&&
+  const programs=allowed.value;
+  if(allowed.field_source!=='solana_program_instruction'||allowed.field!=='programId'||allowed.operator!=='in'||!Array.isArray(programs))return false;
+  const legacy=programs.length===PUMP_PROGRAMS.length&&PUMP_PROGRAMS.every(id=>programs.includes(id))&&
     limit.field_source==='solana_system_program_instruction'&&limit.field==='Transfer.lamports'&&limit.operator==='lte'&&
     /^(0|[1-9]\d{0,7})$/.test(String(limit.value))&&BigInt(limit.value)<=10000000n;
+  const pumpSwap=programs.length===TRADE_PROGRAMS.length&&TRADE_PROGRAMS.every(id=>programs.includes(id))&&
+    limit.field_source==='solana_system_program_instruction'&&limit.field==='Transfer.to'&&limit.operator==='eq'&&
+    limit.value===PILOT_WSOL_ATA;
+  return legacy||pumpSwap;
 }
 
 // This adapter signs only; broadcast belongs to the durable pipeline so a
