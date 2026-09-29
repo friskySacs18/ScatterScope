@@ -96,3 +96,30 @@ export async function preparePumpFullSell({connection,wallet,mint,amountRaw,onli
   return {transaction:encoded,wallet,mint,side:'sell',quoteAt,tokenAmountRaw:amountRaw,minimumReceiveLamports:String(minimum),
     reservedRentLamports:'0',balanceLamports:String(balance),lastValidBlockHeight:blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }
+
+// A read-only quote for background exit decisions. It checks the same
+// owner/mint/full-balance evidence as the transaction builder. Graduated
+// pools are an explicit unsupported state until the PumpSwap route exists.
+export async function quotePumpFullSell({connection,wallet,mint,amountRaw,onlineSdk=new OnlinePumpSdk(connection),
+  quote=getSellSolAmountFromTokenAmount,now=Date.now}={}){
+  if(!ADDRESS.test(wallet||'')||!ADDRESS.test(mint||'')||!/^[1-9]\d{0,19}$/.test(amountRaw||'')||
+    BigInt(amountRaw)>18446744073709551615n)throw Error('Invalid exit identity');
+  const user=new PublicKey(wallet),coin=new PublicKey(mint),observedAt=now();
+  const [global,feeConfig,state,mintAccount,supply]=await Promise.all([
+    onlineSdk.fetchGlobal(),onlineSdk.fetchFeeConfig(),onlineSdk.fetchSellState(coin,user),
+    connection.getAccountInfo(coin,'confirmed'),connection.getTokenSupply(coin,'confirmed')]);
+  if(state?.bondingCurve?.complete)throw Error('migrated_pool_requires_pumpswap_exit');
+  const program=mintAccount?.owner?.toBase58();
+  if(![TOKEN,TOKEN_2022].includes(program)||!state?.bondingCurve||state.quoteMint?.toBase58()!==WSOL||
+    state.quoteTokenProgram?.toBase58()!==TOKEN||!/^[1-9]\d*$/.test(supply?.value?.amount||''))throw Error('Exit curve unavailable');
+  const ata=PublicKey.findProgramAddressSync([user.toBuffer(),new PublicKey(program).toBuffer(),coin.toBuffer()],
+    new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'))[0];
+  const account=await connection.getParsedAccountInfo(ata,'confirmed'),info=account?.value?.data?.parsed?.info;
+  if(account?.value?.owner?.toBase58()!==program||info?.owner!==wallet||info?.mint!==mint||
+    info?.state!=='initialized'||info?.tokenAmount?.amount!==amountRaw)throw Error('Exit token balance unverified');
+  const expected=quote({global,feeConfig,mintSupply:new BN(supply.value.amount),bondingCurve:state.bondingCurve,
+    amount:new BN(amountRaw)});
+  if(!expected||expected.lte(new BN(0))||BigInt(expected.toString())>18446744073709551615n)
+    throw Error('Exit quote unavailable');
+  return {wallet,mint,amountRaw,observedAt,expectedSolOutLamports:expected.toString(),venue:'pump-curve'};
+}
