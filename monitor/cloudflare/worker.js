@@ -1,10 +1,10 @@
 // Independent, read-only scheduler. No wallet keys or order submission routes.
-const INTERVAL=8000;
-const FAST_INTERVAL=6000;
+const INTERVAL=10000;
+const FAST_INTERVAL=8000;
 const SLOW_INTERVAL=30000;
 const RECOVER_AFTER=30*60*1000;
 const SPEED_UP_AFTER=10*60*1000;
-const BUILD='adaptive-feed-metrics-v9';
+const BUILD='adaptive-feed-metrics-v10';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'cache-control':'no-store'}});
 function configured(env){
   if(typeof env.SCOPE_MONITOR_SECRET!=='string'||env.SCOPE_MONITOR_SECRET.length<32)throw Error('Monitor secret missing');
