@@ -40,14 +40,14 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',executionEnabled:config.executionEnabled,ordersSupported:true,
+      return reply({service:'scope-order-executor',build:BUILD,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
         orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
         signerPublicKey:config.signer.publicKey,blockers:config.blockers,
         liveBuySellVerified:true,liveVerifiedVenue:'pump-curve',pilotMaximumBuySol:0.002,exitCheckIntervalMs:8000,
-        reason:'Account opt-in and fresh verified context are required for every pilot buy. New buys are limited to 0.002 SOL on Pump curves; existing positions retain curve and migration exits.'});
+        reason:'Every account must opt in and provide fresh verified context. Live buys are limited to 0.002 SOL on Pump curves; existing positions retain curve and migration exits.'});
     }
     if(request.method==='GET'&&path==='/canary/ui')return new Response(page,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"}});
     if(request.method==='GET'&&path==='/canary/ui.js')return new Response(pageScript,{headers:{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}});
