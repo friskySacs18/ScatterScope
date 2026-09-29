@@ -1,5 +1,6 @@
 // Independent order host. Admission, wallet authority, verified history and
 // signing policy must all pass before the guarded execution path is reachable.
+import {armCanary} from './canary-rearm.js';
 import {Connection} from '@solana/web3.js';
 import {preparePumpCanaryBuy} from './pump-canary-build.js';
 import {serviceConfiguration,operatorConfiguration} from './service-config.js';
@@ -7,7 +8,7 @@ import {reconcileOrder} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 
-const BUILD='executor-account-sniping-v14';
+const BUILD='executor-repeat-canary-v15';
 function exitErrorCode(error){
   const message=String(error?.message||'').toLowerCase();
   return message.includes('context')?'exit_context_rejected':
@@ -188,12 +189,11 @@ export class AccountOrderJournal {
       }
       if(path==='/canary/arm'){
         if(!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body?.accountId||''))return reply({error:'Invalid account'},400);
-        if(await this.storage.get('canary-attempt'))return reply({state:'blocked',reason:'canary_already_attempted'},409);
-        const now=Date.now(),arm={accountId:body.accountId,armedAt:now,expiresAt:now+600000};
-        await this.storage.put('canary-arm',arm);
-        const next=await this.storage.getAlarm();
+        const result=await armCanary(this.storage,body.accountId);
+        if(result.state==='blocked')return reply(result,409);
+        const next=await this.storage.getAlarm(),now=Date.now();
         if(next===null||next>now+1000)await this.storage.setAlarm(now+1000);
-        return reply({state:'armed',expiresAt:arm.expiresAt});
+        return reply(result);
       }
       if(path==='/orders/buy'||path==='/orders/sell'||path==='/orders/canary/buy'){
         const side=path.endsWith('buy')?'buy':'sell';
