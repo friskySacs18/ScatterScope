@@ -45,7 +45,7 @@ durable.set('canary-attempt','a-prior-attempt');
 assert.equal((await journal.fetch(new Request('https://internal/canary/arm',{
   method:'POST',body:JSON.stringify({accountId:validCanary.accountId})}))).status,409);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT}).exitPathVerified,true);
-assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,SCOPE_AUTOMATION_PILOT_ACCOUNT:''}).executionEnabled,false);
+assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,SCOPE_AUTOMATION_PILOT_ACCOUNT:''}).executionEnabled,true);
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT,RPC_URL:'https://untrusted.example/'}).executionEnabled,false);
 const contextToken='private-context-credential-just-for-this-test';
 assert.equal(serviceConfiguration({...base,ACCOUNT_ORDERS,ORDER_CONTEXT_TOKEN:contextToken}).contextConfigured,true);
@@ -94,8 +94,8 @@ console.log('PASS: service auth, kill switch, context binding, strict request fi
 
 
 const unarmed={env:base,job:{accountId:'did:privy:other12345',signalId:'callout-12345'},side:'buy',storage:{},connection:{},contextReader:async()=>{throw Error('must not read context')}};
-assert.equal((await runAccountOrder(unarmed)).reason,'account_pilot_required');
+await assert.rejects(runAccountOrder(unarmed),/must not read context/,'Every account still requires verified context');
 assert.equal((await runAccountOrder({...unarmed,job:exitJob,contextReader:async()=>({...exitContext,evidence:{...exitEvidence,maxLamports:'3000000'}})})).reason,'pilot_buy_limit_exceeded');
 const migration={...unarmed,job:exitJob,storage:{get:async()=>undefined},contextReader:async()=>({...exitContext,evidence:{...exitEvidence,maxLamports:'2000000'}}),prepareBuy:async()=>{throw Error('migrated_pool_requires_pumpswap_buy')},prepareAmmBuy:async()=>{throw Error('must not prepare a migrated pilot buy')}};
 assert.equal((await runAccountOrder(migration)).reason,'pilot_requires_bonding_curve');
-console.log('PASS: pilot account restriction, independent spend cap, migrated buy rejection');
+console.log('PASS: all accounts require verified context; independent spend cap and migrated buy rejection');
