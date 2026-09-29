@@ -18,7 +18,7 @@ await assert.rejects(preparePumpCanaryBuy({connection,wallet:'invalid',mint,onli
 await assert.rejects(preparePumpCanaryBuy({connection,wallet,mint,onlineSdk}),/Insufficient balance/);
 const enough={...connection,getBalance:async()=>12000000};
 await assert.rejects(preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk:{...onlineSdk,fetchBuyState:async()=>({...state,quoteMint:key(wallet)})}}),/curve or chain state/);
-await assert.rejects(preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk:{...onlineSdk,fetchBuyState:async()=>({...state,bondingCurve:{complete:true}})}}),/curve or chain state/);
+await assert.rejects(preparePumpCanaryBuy({connection:enough,wallet,mint,onlineSdk:{...onlineSdk,fetchBuyState:async()=>({...state,bondingCurve:{complete:true}})}}),/migrated_pool_requires_pumpswap_buy/);
 const offlineSdk={buyV2Instructions:async({user,mint:coin,amount,quoteAmount})=>[
   await PUMP_SDK.getBuyV2InstructionRaw({user,mint:coin,creator:key(wallet),amount,quoteAmount:quoteAmount.muln(105).divn(100),
     feeRecipient:key(wallet),buybackFeeRecipient:key(wallet),tokenProgram,quoteMint,quoteTokenProgram:tokenProgram})]};

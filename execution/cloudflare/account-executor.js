@@ -4,6 +4,7 @@ import {preparePumpCanaryBuy,preparePumpFullSell,quotePumpFullSell} from './pump
 import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
 import {createPrivySigner} from './privy-signer.js';
 import {fullExitTrigger} from './position-exit.js';
+import {preparePumpAmmFullSell,preparePumpAmmBuy} from './pump-amm-build.js';
 
 // A private binding, or an authenticated, fixed Scope origin, owns context.
 // Browser input cannot supply evidence, credentials or a destination URL.
@@ -25,11 +26,13 @@ export async function readOrderContext(env,job,side,fetcher=fetch){
 
 export async function runAccountOrder({storage,env,job,side,contextReader=readOrderContext,
   connection=new Connection(env.RPC_URL,'confirmed'),prepareBuy=preparePumpCanaryBuy,prepareSell=preparePumpFullSell,
+  prepareAmmBuy=preparePumpAmmBuy,prepareAmmSell=preparePumpAmmFullSell,
   quoteSell=quotePumpFullSell,signerFactory=createPrivySigner,fetcher=fetch}){
   if(env.SCOPE_EXECUTION_ENABLED!=='true'||env.SCOPE_ORDER_KILL_SWITCH!=='false')return {state:'blocked',reason:'execution_disabled'};
   const context=await contextReader(env,job,side),e=context.evidence;
   if(e.accountId!==job.accountId||e.signalId!==job.signalId)throw Error('Evidence identity mismatch');
   let position;
+  let exitVenue;
   if(side==='sell'){
     position=await storage.get('position:'+e.mint);
     const intent=await storage.get('exit-intent:'+e.mint);
@@ -39,6 +42,7 @@ export async function runAccountOrder({storage,env,job,side,contextReader=readOr
       intent.mint!==position.mint||intent.wallet!==position.wallet)return {state:'blocked',reason:'verified_exit_intent_required'};
     const snapshot=await quoteSell({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
     if(!fullExitTrigger(position,snapshot).triggered)return {state:'blocked',reason:'exit_target_not_currently_met'};
+    exitVenue=snapshot.venue;
   }
   // One unresolved transaction per wallet prevents two fresh quotes spending
   // the same balance concurrently, including while an RPC response is lost.
@@ -46,8 +50,12 @@ export async function runAccountOrder({storage,env,job,side,contextReader=readOr
   if(prior){const outcome=await reconcileOrder({storage,orderId:prior,rpcUrl:env.RPC_URL,fetcher});
     if(!['confirmed','failed'].includes(outcome.state))return {...outcome,reason:'prior_order_unresolved'};
     await storage.delete('active-order');}
-  const prepared=side==='buy'?await prepareBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports}):
-    await prepareSell({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
+  let prepared;
+  if(side==='buy'){
+    try{prepared=await prepareBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports})}
+    catch(error){if(error?.message!=='migrated_pool_requires_pumpswap_buy')throw error;
+      prepared=await prepareAmmBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports});}
+  }else prepared=await (exitVenue==='pump-amm'?prepareAmmSell:prepareSell)({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
   const common={...e,walletId:context.walletId,executionEnabled:true,killSwitch:false,quoteAt:prepared.quoteAt,
     fullTransactionVerified:true,simulationPassed:true,rpcHealthy:true,balanceLamports:prepared.balanceLamports,
     rentLamports:prepared.reservedRentLamports,maxFeeLamports:'100000',minimumReserveLamports:'500000'};

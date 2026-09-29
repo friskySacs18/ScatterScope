@@ -24,6 +24,8 @@ assert.equal(readOnly.observedAt,12345);
 assert.equal(readOnly.amountRaw,'1000');
 owner=mint;await assert.rejects(quotePumpFullSell(args),/balance unverified/);owner=wallet;
 balance='999';await assert.rejects(quotePumpFullSell(args),/balance unverified/);balance='1000';
-await assert.rejects(quotePumpFullSell({...args,onlineSdk:{...onlineSdk,fetchSellState:async()=>({...state,bondingCurve:{complete:true}})}}),/migrated_pool_requires_pumpswap_exit/);
+let routed=false;const migrated=await quotePumpFullSell({...args,onlineSdk:{...onlineSdk,fetchSellState:async()=>({...state,bondingCurve:{complete:true}})},
+  ammQuote:async input=>{routed=true;assert.equal(input.mint,mint);return {venue:'pump-amm'}}});
+assert.equal(routed,true);assert.equal(migrated.venue,'pump-amm');
 await assert.rejects(quotePumpFullSell({...args,quote:()=>new BN(0)}),/quote unavailable/);
 console.log('PASS: full sell quote, exact balance and wallet ownership, frozen account, minimum output, failed simulation');

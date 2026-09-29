@@ -3,6 +3,7 @@ import {ComputeBudgetProgram,PublicKey,TransactionMessage,VersionedTransaction} 
 import {OnlinePumpSdk,PUMP_SDK,getBuyTokenAmountFromSolAmount,getSellSolAmountFromTokenAmount,userVolumeAccumulatorPda} from '@pump-fun/pump-sdk';
 import {inspectPumpV2Transaction} from './inspect-pump-v2.js';
 import {simulateUnsignedTrade} from './rpc-transport.js';
+import {quotePumpAmmFullSell} from './pump-amm-quote.js';
 
 const PUMP='6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const WSOL='So11111111111111111111111111111111111111112';
@@ -29,6 +30,7 @@ export async function preparePumpCanaryBuy({connection,wallet,mint,onlineSdk=new
     connection.getAccountInfo(userVolumeAccumulatorPda(user),'confirmed')
   ]);
   const program=mintAccount?.owner?.toBase58();
+  if(state?.bondingCurve?.complete)throw Error('migrated_pool_requires_pumpswap_buy');
   if(![TOKEN,TOKEN_2022].includes(program)||!state?.bondingCurve||state.bondingCurve.complete||
      state.quoteMint?.toBase58()!==WSOL||state.quoteTokenProgram?.toBase58()!==TOKEN||
      !/^[1-9]\d*$/.test(supply?.value?.amount||'')||!Number.isSafeInteger(balance)||balance<0||
@@ -101,14 +103,14 @@ export async function preparePumpFullSell({connection,wallet,mint,amountRaw,onli
 // owner/mint/full-balance evidence as the transaction builder. Graduated
 // pools are an explicit unsupported state until the PumpSwap route exists.
 export async function quotePumpFullSell({connection,wallet,mint,amountRaw,onlineSdk=new OnlinePumpSdk(connection),
-  quote=getSellSolAmountFromTokenAmount,now=Date.now}={}){
+  quote=getSellSolAmountFromTokenAmount,ammQuote=quotePumpAmmFullSell,now=Date.now}={}){
   if(!ADDRESS.test(wallet||'')||!ADDRESS.test(mint||'')||!/^[1-9]\d{0,19}$/.test(amountRaw||'')||
     BigInt(amountRaw)>18446744073709551615n)throw Error('Invalid exit identity');
   const user=new PublicKey(wallet),coin=new PublicKey(mint),observedAt=now();
   const [global,feeConfig,state,mintAccount,supply]=await Promise.all([
     onlineSdk.fetchGlobal(),onlineSdk.fetchFeeConfig(),onlineSdk.fetchSellState(coin,user),
     connection.getAccountInfo(coin,'confirmed'),connection.getTokenSupply(coin,'confirmed')]);
-  if(state?.bondingCurve?.complete)throw Error('migrated_pool_requires_pumpswap_exit');
+  if(state?.bondingCurve?.complete)return ammQuote({connection,wallet,mint,amountRaw,now});
   const program=mintAccount?.owner?.toBase58();
   if(![TOKEN,TOKEN_2022].includes(program)||!state?.bondingCurve||state.quoteMint?.toBase58()!==WSOL||
     state.quoteTokenProgram?.toBase58()!==TOKEN||!/^[1-9]\d*$/.test(supply?.value?.amount||''))throw Error('Exit curve unavailable');

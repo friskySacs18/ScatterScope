@@ -1,6 +1,7 @@
 import {beginSigning} from './order-journal.js';
 import {verifySignedTransaction} from './signed-transaction.js';
 import {inspectPumpV2Transaction} from './inspect-pump-v2.js';
+import {inspectPumpAmmSellTransaction,inspectPumpAmmBuyTransaction} from './inspect-pump-amm.js';
 import {broadcastRecordedTransaction,finalizedStatus,finalizedTransaction} from './rpc-transport.js';
 import {verifySettlement} from './settlement.js';
 import {confirmedPosition} from './position-exit.js';
@@ -16,8 +17,14 @@ export async function executeReservedOrder({storage,orderId,prepared,authorize,s
      !Number.isSafeInteger(prepared.quoteAt)||now()-prepared.quoteAt>5000||prepared.quoteAt>now()||
      !Number.isSafeInteger(prepared.lastValidBlockHeight)||prepared.lastValidBlockHeight<1)throw Error('Preparation identity or freshness mismatch');
   if(side==='buy'&&prepared.maximumSpendLamports!==order.amountLamports||side==='sell'&&prepared.tokenAmountRaw!==order.amountRaw)throw Error('Preparation amount mismatch');
-  const inspected=inspectPumpV2Transaction(prepared.transaction,{wallet:order.wallet,mint:order.mint,side,
-    amountRaw:prepared.tokenAmountRaw,limitLamports:side==='buy'?prepared.maximumSpendLamports:prepared.minimumReceiveLamports});
+  const inspected=prepared.venue==='pump-amm'?(side==='sell'?
+    inspectPumpAmmSellTransaction(prepared.transaction,{wallet:order.wallet,mint:order.mint,
+      amountRaw:prepared.tokenAmountRaw,limitLamports:prepared.minimumReceiveLamports}):
+    inspectPumpAmmBuyTransaction(prepared.transaction,{wallet:order.wallet,mint:order.mint,
+      amountRaw:prepared.tokenAmountRaw,limitLamports:prepared.maximumSpendLamports,
+      tokenProgram:prepared.tokenProgram})):
+    inspectPumpV2Transaction(prepared.transaction,{wallet:order.wallet,mint:order.mint,side,
+      amountRaw:prepared.tokenAmountRaw,limitLamports:side==='buy'?prepared.maximumSpendLamports:prepared.minimumReceiveLamports});
   if(!inspected.valid)throw Error('Prepared transaction rejected');
   // Recheck revocation, current account controls and block height immediately
   // before the irreversible attempt marker. Exceptions leave it unsigned.
