@@ -21,14 +21,16 @@ export function confirmedPosition({buyOrder,rules,now=Date.now()}){
     !AMOUNT.test(receipt.tokenDeltaRaw||'')||!SIGNED.test(receipt.solDeltaLamports||'')||
     !AMOUNT.test(receipt.tradeCostLamports||'')||
     !AMOUNT.test(buyOrder.amountLamports||'')||!Number.isSafeInteger(buyOrder.settledAt)||
-    buyOrder.settledAt>now||!buyOrder.wallet||!buyOrder.mint)throw Error('Confirmed buy receipt required');
+    buyOrder.settledAt>now||!buyOrder.wallet||!buyOrder.mint||
+    !/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(buyOrder.accountId||'')||
+    !/^[A-Za-z0-9-]{8,80}$/.test(buyOrder.signalId||''))throw Error('Confirmed buy receipt required');
   const cost=BigInt(receipt.tradeCostLamports);
   if(cost>BigInt(buyOrder.amountLamports)||cost>-BigInt(receipt.solDeltaLamports))
     throw Error('Buy spend exceeds reserved amount');
   const normalized=rules&&Object.hasOwn(rules,'profitPercent')?
     fullExitRules({profit1Percent:rules.profitPercent,profit1Sell:rules.profitPercent==null?null:100,
       profit2Percent:null,profit2Sell:null,stopPercent:rules.stopPercent}):fullExitRules(rules);
-  return {state:'open',buyOrderId:buyOrder.id,wallet:buyOrder.wallet,mint:buyOrder.mint,
+  return {state:'open',buyOrderId:buyOrder.id,accountId:buyOrder.accountId,signalId:buyOrder.signalId,wallet:buyOrder.wallet,mint:buyOrder.mint,
     openedAt:buyOrder.settledAt,amountRaw:receipt.tokenDeltaRaw,costLamports:cost.toString(),rules:normalized};
 }
 
