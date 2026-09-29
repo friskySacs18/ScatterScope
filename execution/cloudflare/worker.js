@@ -157,7 +157,7 @@ export class AccountOrderJournal {
       if(path==='/status'){
         const orders=await this.storage.list({prefix:'order:',limit:100}),positions=await this.storage.list({prefix:'position:',limit:100});
         return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
-          positions:[...positions.values()].filter(p=>p.state==='open').map(p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,rules:p.rules})),lastBuyCheck:await this.storage.get('buy-last-check')||null});
+          positions:await Promise.all([...positions.values()].filter(p=>p.state==='open').slice(0,12).map(async p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,costLamports:p.costLamports,openedAt:p.openedAt,canary:p.canary===true,rules:p.rules,buySignature:(await this.storage.get('order:'+p.buyOrderId))?.signature||null,exitObservation:await this.storage.get('exit-observation:'+p.mint)||null,lastExitCheck:await this.storage.get('exit-last-check:'+p.mint)||null}))),lastBuyCheck:await this.storage.get('buy-last-check')||null});
       }
       if(path==='/alerts'){
         const rows=await this.storage.list({prefix:'caller-alert:'});
