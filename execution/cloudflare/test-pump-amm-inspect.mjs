@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {Keypair,PublicKey,SystemProgram,TransactionInstruction,TransactionMessage,VersionedTransaction} from '@solana/web3.js';
 import {canonicalPumpPoolPda,PUMP_AMM_PROGRAM_ID} from '@pump-fun/pump-swap-sdk';
 import {inspectPumpAmmSellTransaction,inspectPumpAmmBuyTransaction} from './inspect-pump-amm.js';
@@ -9,7 +10,7 @@ const ata=new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
 const wsolAta=PublicKey.findProgramAddressSync([wallet.toBuffer(),token.toBuffer(),wsol.toBuffer()],ata)[0];
 const key=()=>Keypair.generate().publicKey;
 const baseAta=PublicKey.findProgramAddressSync([wallet.toBuffer(),token.toBuffer(),mint.toBuffer()],ata)[0];
-const accounts=[canonicalPumpPoolPda(mint),wallet,key(),mint,wsol,baseAta,wsolAta,key(),key(),key(),key(),key(),token,token,
+const accounts=[canonicalPumpPoolPda(mint),wallet,key(),mint,wsol,baseAta,wsolAta,key(),key(),key(),key(),token,token,
   new PublicKey('11111111111111111111111111111111'),ata,key(),PUMP_AMM_PROGRAM_ID].map((pubkey,i)=>({pubkey,isSigner:i===1,isWritable:true}));
 // The IDL's fixed account prefix is checked; remaining fee accounts are
 // supplied by the SDK and separately simulated against current RPC state.
@@ -35,7 +36,21 @@ const sync=new TransactionInstruction({programId:token,keys:[{pubkey:wsolAta,isS
 const buyTx=new VersionedTransaction(new TransactionMessage({payerKey:wallet,recentBlockhash:key().toBase58(),instructions:[transfer,sync,buyIx,close]}).compileToV0Message());
 const buyEncoded=Buffer.from(buyTx.serialize()).toString('base64');
 const buyInput={...input,limitLamports:'2000000',tokenProgram:token.toBase58()};
+// Keep the fixture tied to the installed Pump SDK IDL. An extra account in
+// this prefix previously made both the verifier and its fixtures wrong.
+const idl=JSON.parse(readFileSync(new URL('./node_modules/@pump-fun/pump-swap-sdk/src/idl/pump_amm.json',import.meta.url)));
+for(const name of ['buy','sell']){
+  const prefix=idl.instructions.find(x=>x.name===name).accounts;
+  for(const [field,pubkey] of Object.entries({pool:accounts[0].pubkey,user:wallet,base_mint:mint,quote_mint:wsol,
+    user_base_token_account:baseAta,user_quote_token_account:wsolAta,base_token_program:token,
+    quote_token_program:token,system_program:new PublicKey('11111111111111111111111111111111'),associated_token_program:ata,program:PUMP_AMM_PROGRAM_ID}))
+    assert.equal(accounts[prefix.findIndex(x=>x.name===field)].pubkey.toBase58(),pubkey.toBase58(),name+' '+field+' follows SDK IDL');
+}
 assert.equal(inspectPumpAmmBuyTransaction(buyEncoded,buyInput).valid,true);
+const shifted=buyAccounts.slice();shifted.splice(11,0,{pubkey:key(),isSigner:false,isWritable:false});
+const shiftedTx=new VersionedTransaction(new TransactionMessage({payerKey:wallet,recentBlockhash:key().toBase58(),instructions:[transfer,sync,
+  new TransactionInstruction({programId:PUMP_AMM_PROGRAM_ID,keys:shifted,data:buyData}),close]}).compileToV0Message());
+assert.equal(inspectPumpAmmBuyTransaction(Buffer.from(shiftedTx.serialize()).toString('base64'),buyInput).valid,false,'Wrong account layout remains rejected');
 assert.equal(inspectPumpAmmBuyTransaction(buyEncoded,{...buyInput,limitLamports:'1999999'}).valid,false);
 const buyWithExtra=new VersionedTransaction(new TransactionMessage({payerKey:wallet,recentBlockhash:key().toBase58(),instructions:[transfer,sync,buyIx,extra,close]}).compileToV0Message());
 assert.equal(inspectPumpAmmBuyTransaction(Buffer.from(buyWithExtra.serialize()).toString('base64'),buyInput).valid,false);
