@@ -32,7 +32,6 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   const contextSide=canary?'canary-'+side:side;
   const context=await contextReader(env,job,contextSide),e=context.evidence;
   if(canary&&(e.canary!==true||side==='buy'&&e.maxLamports!=='2000000'))throw Error('Canary context rejected');
-  if(!canary&&side==='buy'&&(!/^[1-9]\d*$/.test(e.maxLamports||'')||BigInt(e.maxLamports)>2000000n))return {state:'blocked',reason:'pilot_buy_limit_exceeded'};
   if(e.accountId!==job.accountId||e.signalId!==job.signalId)throw Error('Evidence identity mismatch');
   if(canary&&side==='buy'&&await storage.get('canary-attempt'))return {state:'blocked',reason:'canary_already_attempted'};
   let position;
