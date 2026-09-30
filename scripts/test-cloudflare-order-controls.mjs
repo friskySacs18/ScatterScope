@@ -5,12 +5,12 @@ const now=1790374650000;
 const good={killSwitch:false,executionEnabled:true,accountStatus:'active',ownerVerified:true,delegationVerified:true,consentVerified:true,
  accountId:'account-1',signalId:'call-1',wallet:'11111111111111111111111111111111',caller:'11111111111111111111111111111111',mint:'So11111111111111111111111111111111111111112',
  selectedCaller:true,signalVerified:true,mintAlreadyHeld:false,publishedAt:now-5000,observedAt:now-3000,monitorHeartbeatAt:now-1000,feedHealthy:true,
- quoteAt:now-1000,marketCapUsd:25000,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
+ quoteAt:now-1000,marketCapUsd:25000,callMarketCapUsd:25000,maxMcChangePercent:5,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
  maxLamports:'2000000',dailyCapLamports:'10000000',dailyReservedLamports:'7000000',balanceLamports:'5000000',maxFeeLamports:'100000',rentLamports:'2000000',minimumReserveLamports:'900000'};
 assert.deepEqual(evaluateBuy(good,now),{allowed:true,reason:null,reservationLamports:'2000000'});
 assert.equal(evaluateBuy({...good,firstCall:false,historyComplete:false},now).allowed,true,'A later call is eligible for the first buy of a mint');
 for(const [key,value] of Object.entries({killSwitch:true,executionEnabled:false,consentVerified:false,delegationVerified:false,selectedCaller:false,mintAlreadyHeld:true,
- publishedAt:now-31000,observedAt:now-25000,monitorHeartbeatAt:now-26000,feedHealthy:false,quoteAt:now-6000,marketCapAllowed:false,
+ observedAt:now-25000,monitorHeartbeatAt:now-26000,feedHealthy:false,quoteAt:now-6000,marketCapAllowed:false,
  rpcHealthy:false,signerPolicyVerified:false,fullTransactionVerified:false,simulationPassed:false,dailyReservedLamports:'9000000',balanceLamports:'4999999',maxLamports:'NaN',rentLamports:undefined,minimumReserveLamports:undefined})){
  const result=evaluateBuy({...good,[key]:value},now);assert.equal(result.allowed,false,key);
 }
@@ -20,3 +20,10 @@ assert.equal(evaluateBuy({...good,accountId:'../other'},now).allowed,false);
 assert.equal(evaluateBuy({...good,rentLamports:'2000001'},now).reason,'budget_exceeded');
 assert.equal(evaluateBuy({...good,minimumReserveLamports:'900001'},now).reason,'budget_exceeded');
 console.log('Order admission fails closed for stale feeds, consent, instruction integrity, budgets and kill switch');
+
+assert.equal(evaluateBuy({...good,publishedAt:now-3600000},now).allowed,true,'Publication age alone never rejects a buy');
+for(const marketCapUsd of [23750,26250])assert.equal(evaluateBuy({...good,marketCapUsd},now).allowed,true);
+for(const marketCapUsd of [23749,26251])assert.equal(evaluateBuy({...good,marketCapUsd},now).allowed,false);
+assert.equal(evaluateBuy({...good,marketCapUsd:30000,maxMcChangePercent:25},now).allowed,true);
+assert.equal(evaluateBuy({...good,callMarketCapUsd:undefined},now).allowed,false);
+console.log('PASS: late calls use immutable call MC and configured two-way tolerance');
