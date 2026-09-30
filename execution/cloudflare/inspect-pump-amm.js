@@ -56,8 +56,8 @@ export function inspectPumpAmmSellTransaction(encoded,{wallet,mint,amountRaw,lim
         new DataView(data.buffer,data.byteOffset).getBigUint64(8,true)!==BigInt(amountRaw)||
         new DataView(data.buffer,data.byteOffset).getBigUint64(16,true)!==BigInt(limitLamports)||
         at(0)!==pool||at(1)!==wallet||at(3)!==mint||at(4)!==WSOL||
-        at(6)!==wsolAta||!baseAtas.some(([program,ata])=>at(12)===program&&at(5)===ata)||
-        at(13)!==TOKEN||at(14)!==SYSTEM||at(15)!==ATA)
+        at(6)!==wsolAta||!baseAtas.some(([program,ata])=>at(11)===program&&at(5)===ata)||
+        at(12)!==TOKEN||at(13)!==SYSTEM||at(14)!==ATA||at(16)!==PUMP_AMM_PROGRAM_ID.toBase58())
         return fail('amm_trade_mismatch');
       continue;
     }
@@ -125,7 +125,8 @@ export function inspectPumpAmmBuyTransaction(encoded,{wallet,mint,amountRaw,limi
         new DataView(data.buffer,data.byteOffset).getBigUint64(8,true)!==BigInt(amountRaw)||
         new DataView(data.buffer,data.byteOffset).getBigUint64(16,true)!==BigInt(limitLamports)||
         at(0)!==pool||at(1)!==wallet||at(3)!==mint||at(4)!==WSOL||
-        at(5)!==baseAta||at(6)!==wsolAta||at(12)!==tokenProgram||at(13)!==TOKEN||at(14)!==SYSTEM||at(15)!==ATA)
+        at(5)!==baseAta||at(6)!==wsolAta||at(11)!==tokenProgram||at(12)!==TOKEN||at(13)!==SYSTEM||at(14)!==ATA||
+        at(16)!==PUMP_AMM_PROGRAM_ID.toBase58())
         return fail('amm_trade_mismatch');
       continue;
     }
