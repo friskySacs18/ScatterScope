@@ -96,6 +96,7 @@ console.log('PASS: service auth, kill switch, context binding, strict request fi
 const unarmed={env:base,job:{accountId:'did:privy:other12345',signalId:'callout-12345'},side:'buy',storage:{},connection:{},contextReader:async()=>{throw Error('must not read context')}};
 await assert.rejects(runAccountOrder(unarmed),/must not read context/,'Every account still requires verified context');
 await assert.rejects(runAccountOrder({...unarmed,job:exitJob,storage:{get:async()=>undefined},prepareBuy:async({budgetLamports})=>{assert.equal(budgetLamports,'3000000');throw Error('larger_budget_reached_builder')},contextReader:async()=>({...exitContext,evidence:{...exitEvidence,maxLamports:'3000000'}})}),/larger_budget_reached_builder/);
-const migration={...unarmed,job:exitJob,storage:{get:async()=>undefined},contextReader:async()=>({...exitContext,evidence:{...exitEvidence,maxLamports:'2000000'}}),prepareBuy:async()=>{throw Error('migrated_pool_requires_pumpswap_buy')},prepareAmmBuy:async()=>{throw Error('must not prepare a migrated pilot buy')}};
-assert.equal((await runAccountOrder(migration)).reason,'pilot_requires_bonding_curve');
-console.log('PASS: all accounts require verified context; independent spend cap and migrated buy rejection');
+const migration={...unarmed,job:exitJob,storage:{get:async()=>undefined},contextReader:async()=>({...exitContext,evidence:{...exitEvidence,maxLamports:'2000000'}}),prepareBuy:async()=>{throw Error('migrated_pool_requires_pumpswap_buy')},prepareAmmBuy:async({wallet,mint,budgetLamports})=>{assert.equal(wallet,exitEvidence.wallet);assert.equal(mint,exitEvidence.mint);assert.equal(budgetLamports,'2000000');throw Error('verified_migrated_buy_builder_reached')}};
+await assert.rejects(runAccountOrder(migration),/verified_migrated_buy_builder_reached/);
+await assert.rejects(runAccountOrder({...migration,prepareBuy:async()=>{throw Error('rpc_unavailable')}}),/rpc_unavailable/);
+console.log('PASS: all accounts require verified context; saved budget forwarded to migrated buys; unrelated builder failures remain errors');
