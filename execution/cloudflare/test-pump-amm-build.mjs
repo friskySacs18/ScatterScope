@@ -15,7 +15,7 @@ const pool={index:0,baseMint:mint,quoteMint:WSOL,virtualQuoteReserves:new BN(0),
 const state={poolKey:canonicalPumpPoolPda(mint),user:wallet,baseMint:mint,baseTokenProgram:TOKEN,quoteTokenProgram:TOKEN,
   poolAccountInfo:{owner:PUMP_AMM_PROGRAM_ID},userBaseTokenAccount:baseAta,userQuoteTokenAccount:wsolAta,userBaseAccountInfo:null,userQuoteAccountInfo:null,
   poolBaseAmount:new BN('10000000'),poolQuoteAmount:new BN('20000000'),pool,globalConfig:{},baseMintAccount:{},feeConfig:null};
-const accounts=[state.poolKey,wallet,key(),mint,WSOL,baseAta,wsolAta,key(),key(),key(),key(),key(),TOKEN,TOKEN,
+const accounts=[state.poolKey,wallet,key(),mint,WSOL,baseAta,wsolAta,key(),key(),key(),key(),TOKEN,TOKEN,
   new PublicKey('11111111111111111111111111111111'),ATA,key(),PUMP_AMM_PROGRAM_ID].map((pubkey,i)=>({pubkey,isSigner:i===1,isWritable:true}));
 const ix=(disc,amount,limit)=>{const data=Buffer.alloc(disc==='buy'?25:24);Buffer.from(disc==='buy'?'66063d1201daebea':'33e685a4017f83ad','hex').copy(data);
   data.writeBigUInt64LE(BigInt(amount),8);data.writeBigUInt64LE(BigInt(limit),16);return new TransactionInstruction({programId:PUMP_AMM_PROGRAM_ID,keys:accounts,data})};
