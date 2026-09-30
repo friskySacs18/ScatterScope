@@ -57,7 +57,6 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   if(side==='buy'){
     try{prepared=await prepareBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports})}
     catch(error){if(error?.message!=='migrated_pool_requires_pumpswap_buy')throw error;
-      if(!canary)return {state:'blocked',reason:'pilot_requires_bonding_curve'};
       prepared=await prepareAmmBuy({connection,wallet:e.wallet,mint:e.mint,budgetLamports:e.maxLamports});}
   }else prepared=await (exitVenue==='pump-amm'?prepareAmmSell:prepareSell)({connection,wallet:e.wallet,mint:e.mint,amountRaw:position.amountRaw});
   const common={...e,walletId:context.walletId,canary,executionEnabled:true,killSwitch:false,quoteAt:prepared.quoteAt,
