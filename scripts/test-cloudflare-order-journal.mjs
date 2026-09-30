@@ -7,7 +7,7 @@ const storage={transaction(fn){const result=chain.then(()=>fn({get:key=>values.g
 const evidence={killSwitch:false,executionEnabled:true,accountStatus:'active',ownerVerified:true,delegationVerified:true,consentVerified:true,
  accountId:'account-1',signalId:'call-1',wallet:'11111111111111111111111111111111',caller:'11111111111111111111111111111111',mint:'So11111111111111111111111111111111111111112',
  selectedCaller:true,signalVerified:true,mintAlreadyHeld:false,publishedAt:now-5000,observedAt:now-3000,monitorHeartbeatAt:now-1000,feedHealthy:true,
- quoteAt:now-1000,marketCapUsd:25000,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
+ quoteAt:now-1000,marketCapUsd:25000,callMarketCapUsd:25000,maxMcChangePercent:5,marketCapAllowed:true,rpcHealthy:true,signerPolicyVerified:true,fullTransactionVerified:true,simulationPassed:true,
  maxLamports:'2000000',dailyCapLamports:'3000000',dailyReservedLamports:'0',balanceLamports:'5000000',maxFeeLamports:'100000',rentLamports:'2000000',minimumReserveLamports:'900000'};
 evidence.exitRules={profit1Percent:25,profit1Sell:100,profit2Percent:null,profit2Sell:null,stopPercent:25};
 assert.equal((await reserveBuy(storage,{...evidence,exitRules:null},now)).reason,'full_exit_rules_required');
