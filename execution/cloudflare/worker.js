@@ -46,7 +46,7 @@ export default {
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
         signerPublicKey:config.signer.publicKey,blockers:config.blockers,
-        liveBuySellVerified:true,liveVerifiedVenue:'pump-curve',maximumBuySol:null,exitCheckIntervalMs:8000,
+        liveBuySellVerified:true,liveVerifiedVenue:'pump-curve',maximumBuySol:null,entryEligibility:'call-market-cap',exitCheckIntervalMs:8000,
         reason:'Every account must opt in and provide fresh verified context. Live buys use each account’s saved SOL amounts on Pump curves; existing positions retain curve and migration exits.'});
     }
     if(request.method==='GET'&&path==='/canary/ui')return new Response(page,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"}});
