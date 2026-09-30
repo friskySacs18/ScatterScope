@@ -11,11 +11,14 @@ export function evaluateBuy(evidence, now=Date.now()){
   if(evidence.accountStatus!=='active'||evidence.ownerVerified!==true||evidence.delegationVerified!==true||evidence.consentVerified!==true)return block('consent_or_account_unverified');
   if(!ID.test(evidence.accountId||'')||!ID.test(evidence.signalId||'')||!ADDRESS.test(evidence.wallet||'')||!ADDRESS.test(evidence.mint||'')||!ADDRESS.test(evidence.caller||''))return block('invalid_identity');
   if(evidence.selectedCaller!==true||evidence.signalVerified!==true||evidence.mintAlreadyHeld!==false)return block('signal_or_prior_purchase_unverified');
-  if(!Number.isSafeInteger(evidence.publishedAt)||evidence.publishedAt>now||now-evidence.publishedAt>30000||
+  if(!Number.isSafeInteger(evidence.publishedAt)||evidence.publishedAt>now||
      !Number.isSafeInteger(evidence.observedAt)||evidence.observedAt>now||evidence.observedAt<evidence.publishedAt||now-evidence.observedAt>20000)return block('stale_signal');
   if(!Number.isSafeInteger(evidence.monitorHeartbeatAt)||evidence.monitorHeartbeatAt>now||now-evidence.monitorHeartbeatAt>25000||evidence.feedHealthy!==true)return block('stale_feed');
   if(!Number.isSafeInteger(evidence.quoteAt)||evidence.quoteAt>now||now-evidence.quoteAt>5000||
      !Number.isFinite(evidence.marketCapUsd)||evidence.marketCapUsd<0||evidence.marketCapAllowed!==true)return block('quote_unverified');
+  const original=evidence.callMarketCapUsd,limit=evidence.maxMcChangePercent;
+  if(!Number.isFinite(original)||original<=0||original>1e11||!Number.isFinite(limit)||limit<0||limit>10000||
+    Math.abs(evidence.marketCapUsd-original)>original*limit/100+original*1e-12)return block('market_cap_moved_or_unverified');
   if(evidence.rpcHealthy!==true||evidence.signerPolicyVerified!==true||evidence.fullTransactionVerified!==true||evidence.simulationPassed!==true)return block('execution_prerequisite_unverified');
   let amount,dailyCap,dailyReserved,balance,fees,rent,reserve;
   try{
