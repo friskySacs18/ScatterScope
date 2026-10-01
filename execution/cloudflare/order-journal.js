@@ -34,13 +34,14 @@ export async function reserveBuy(storage,evidence,now=Date.now()){
 }
 
 // Write an irreversible attempt marker before contacting the signer or RPC.
-// Unknown outcomes stay locked for explicit reconciliation, not a new buy.
-export async function beginSigning(storage,orderId){
+// Broadcast outcomes stay locked for chain reconciliation. Unsubmitted signing
+// failures may close the account lock while retaining permanent buy locks.
+export async function beginSigning(storage,orderId,now=Date.now()){
   if(!/^[0-9a-f-]{36}$/.test(orderId||''))throw Error('Invalid order ID');
   return storage.transaction(async txn=>{
     const key='order:'+orderId,order=await txn.get(key);
     if(!order||order.state!=='reserved')return false;
-    await txn.put(key,{...order,state:'signing'});return true;
+    await txn.put(key,{...order,state:'signing',signingStartedAt:now});return true;
   });
 }
 export async function markBroadcast(storage,orderId,signature){

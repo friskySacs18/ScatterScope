@@ -1,7 +1,7 @@
 import {Connection} from '@solana/web3.js';
 import {reserveBuy,reserveFullSell} from './order-journal.js';
 import {preparePumpCanaryBuy,preparePumpFullSell,quotePumpFullSell} from './pump-canary-build.js';
-import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
+import {executeReservedOrder,reconcileOrder,TERMINAL_ORDER_STATES} from './execution-pipeline.js';
 import {createPrivySigner} from './privy-signer.js';
 import {fullExitTrigger} from './position-exit.js';
 import {preparePumpAmmFullSell,preparePumpAmmBuy} from './pump-amm-build.js';
@@ -51,7 +51,7 @@ export async function runAccountOrder({storage,env,job,side,canary=false,context
   // the same balance concurrently, including while an RPC response is lost.
   const prior=await storage.get('active-order');
   if(prior){const outcome=await reconcileOrder({storage,orderId:prior,rpcUrl:env.RPC_URL,fetcher});
-    if(!['confirmed','failed','expired'].includes(outcome.state))return {...outcome,reason:'prior_order_unresolved'};
+    if(!TERMINAL_ORDER_STATES.includes(outcome.state))return {...outcome,reason:'prior_order_unresolved'};
     await storage.delete('active-order');}
   let prepared;
   if(side==='buy'){

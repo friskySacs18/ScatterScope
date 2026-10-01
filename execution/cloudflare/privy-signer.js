@@ -72,28 +72,35 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
   return async function sign({order,transaction}){
     if(!ID.test(order.walletId||'')||!/^did:privy:[a-zA-Z0-9_-]{8,120}$/.test(order.accountId||'')||!order.id)throw Error('Verified wallet identity required');
     const headers={authorization:'Basic '+btoa(APP_ID+':'+env.PRIVY_APP_SECRET),'privy-app-id':APP_ID};
-    const response=await fetcher('https://api.privy.io/v1/users/'+encodeURIComponent(order.accountId),{headers,signal:AbortSignal.timeout(6000)});
-    if(!response.ok)throw Error('Wallet owner verification unavailable');
-    const user=await response.json();
-    if(user.id!==order.accountId||!user.linked_accounts?.some(x=>x.type==='wallet'&&x.chain_type==='solana'&&x.wallet_client_type==='privy'&&x.id===order.walletId&&x.address===order.wallet))throw Error('Wallet owner mismatch');
-    const wallet=await api.wallets().get(order.walletId);
+    const fail=(message,code)=>Object.assign(Error(message),{code});
+    const read=async(path)=>{
+      try{const response=await fetcher('https://api.privy.io/v1/'+path,{headers,signal:AbortSignal.timeout(6000)});
+        if(!response.ok)throw Error('Provider unavailable');return await response.json();
+      }catch(error){throw fail('Privy signer verification unavailable',error?.name==='TimeoutError'?'signer_timeout':'signer_unavailable')}
+    };
+    // These reads are independent. All four still have to pass before the
+    // single sign-only request; serial reads unnecessarily consume block life.
+    const [user,wallet,quorum,policy]=await Promise.all([
+      read('users/'+encodeURIComponent(order.accountId)),
+      Promise.resolve().then(()=>api.wallets().get(order.walletId)).catch(()=>{throw fail('Privy wallet verification unavailable','signer_unavailable')}),
+      read('key_quorums/'+encodeURIComponent(env.SCOPE_PRIVY_SIGNER_QUORUM_ID)),
+      read('policies/'+encodeURIComponent(env.SCOPE_PRIVY_POLICY_ID))
+    ]);
+    if(user.id!==order.accountId||!user.linked_accounts?.some(x=>x.type==='wallet'&&x.chain_type==='solana'&&x.wallet_client_type==='privy'&&x.id===order.walletId&&x.address===order.wallet))throw fail('Wallet owner mismatch','wallet_owner_mismatch');
     const delegated=wallet.additional_signers?.find(x=>x.signer_id===env.SCOPE_PRIVY_SIGNER_QUORUM_ID);
     if(wallet.id!==order.walletId||wallet.address!==order.wallet||wallet.chain_type!=='solana'||wallet.archived_at!=null||
-      delegated?.override_policy_ids?.length!==1||delegated.override_policy_ids[0]!==env.SCOPE_PRIVY_POLICY_ID)throw Error('Wallet delegation missing or revoked');
-    const quorumResponse=await fetcher('https://api.privy.io/v1/key_quorums/'+encodeURIComponent(env.SCOPE_PRIVY_SIGNER_QUORUM_ID),{headers,signal:AbortSignal.timeout(6000)});
-    if(!quorumResponse.ok)throw Error('Privy signer quorum unavailable');
-    const quorum=await quorumResponse.json();
+      delegated?.override_policy_ids?.length!==1||delegated.override_policy_ids[0]!==env.SCOPE_PRIVY_POLICY_ID)throw fail('Wallet delegation missing or revoked','wallet_delegation_revoked');
     if(quorum.id!==env.SCOPE_PRIVY_SIGNER_QUORUM_ID||quorum.authorization_threshold!==1||
       quorum.authorization_keys?.length!==1||quorum.authorization_keys[0]?.public_key?.replace(/\s/g,'')!==key.publicKey)
-      throw Error('Signer private key does not match the registered quorum');
-    const policyResponse=await fetcher('https://api.privy.io/v1/policies/'+encodeURIComponent(env.SCOPE_PRIVY_POLICY_ID),{headers,signal:AbortSignal.timeout(6000)});
-    if(!policyResponse.ok||!verifiedSigningPolicy(await policyResponse.json(),env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID))
-      throw Error('Privy signing policy incompatible or unavailable');
-    const result=await api.wallets().solana().signTransaction(order.walletId,{
+      throw fail('Signer private key does not match the registered quorum','signer_quorum_mismatch');
+    if(!verifiedSigningPolicy(policy,env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID))
+      throw fail('Privy signing policy incompatible or unavailable','signing_policy_unavailable');
+    let result;
+    try{result=await api.wallets().solana().signTransaction(order.walletId,{
       transaction,idempotency_key:order.id,request_expiry:now()+15000,
       authorization_context:{authorization_private_keys:[key.privateKey]}
-    });
-    if(result.encoding!=='base64'||typeof result.signed_transaction!=='string')throw Error('Invalid signer response');
+    })}catch(error){throw fail('Privy signing request failed',/timeout/i.test(error?.name||'')?'signer_timeout':'signer_request_rejected')}
+    if(result.encoding!=='base64'||typeof result.signed_transaction!=='string')throw fail('Invalid signer response','invalid_signer_response');
     return result.signed_transaction;
   };
 }

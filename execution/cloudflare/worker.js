@@ -4,11 +4,11 @@ import {armCanary} from './canary-rearm.js';
 import {Connection} from '@solana/web3.js';
 import {preparePumpCanaryBuy} from './pump-canary-build.js';
 import {serviceConfiguration,operatorConfiguration} from './service-config.js';
-import {reconcileOrder} from './execution-pipeline.js';
+import {reconcileOrder,TERMINAL_ORDER_STATES} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 
-const BUILD='executor-repeat-canary-v15';
+const BUILD='executor-signing-recovery-v16';
 function exitErrorCode(error){
   const message=String(error?.message||'').toLowerCase();
   return message.includes('context')?'exit_context_rejected':
@@ -40,7 +40,7 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
+      return reply({service:'scope-order-executor',build:BUILD,signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
         orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
@@ -155,8 +155,13 @@ export class AccountOrderJournal {
         return reply(await reconcileOrder({storage:this.storage,orderId:body.orderId,rpcUrl:this.env.RPC_URL}));
       }
       if(path==='/status'){
+        const active=await this.storage.get('active-order'),current=active?await this.storage.get('order:'+active):null;
+        if(current&&['reserved','signing','signing_unknown'].includes(current.state)){
+          const outcome=await reconcileOrder({storage:this.storage,orderId:active,rpcUrl:this.env.RPC_URL});
+          if(TERMINAL_ORDER_STATES.includes(outcome.state))await this.storage.delete('active-order');
+        }
         const orders=await this.storage.list({prefix:'order:',limit:100}),positions=await this.storage.list({prefix:'position:',limit:100});
-        return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
+        return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,failureReason:o.failureReason||null,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
           positions:await Promise.all([...positions.values()].filter(p=>p.state==='open').slice(0,12).map(async p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,costLamports:p.costLamports,openedAt:p.openedAt,canary:p.canary===true,rules:p.rules,buySignature:(await this.storage.get('order:'+p.buyOrderId))?.signature||null,exitObservation:await this.storage.get('exit-observation:'+p.mint)||null,lastExitCheck:await this.storage.get('exit-last-check:'+p.mint)||null}))),lastBuyCheck:await this.storage.get('buy-last-check')||null});
       }
       if(path==='/alerts'){
@@ -216,7 +221,7 @@ export class AccountOrderJournal {
         const id=await this.storage.get('active-order');
         if(id){
           const outcome=await reconcileOrder({storage:this.storage,orderId:id,rpcUrl:this.env.RPC_URL});
-          if(['confirmed','failed','expired'].includes(outcome.state))await this.storage.delete('active-order');
+          if(TERMINAL_ORDER_STATES.includes(outcome.state))await this.storage.delete('active-order');
           else return; // Unknown signatures stay locked; only reconcile again.
         }
         const arm=await this.storage.get('canary-arm');

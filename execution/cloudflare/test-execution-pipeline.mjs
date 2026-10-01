@@ -73,8 +73,35 @@ const noReceipt=store();await executeReservedOrder({...args,storage:noReceipt});
 assert.equal((await reconcileOrder({storage:noReceipt,orderId,rpcUrl,fetcher:async(url,init)=>Response.json({jsonrpc:'2.0',id:1,result:JSON.parse(init.body).method==='getSignatureStatuses'?{value:[{confirmationStatus:'finalized',err:null}]}:null})})).state,'reconciliation_pending');
 const revoked=store();let revokedSign=0;await assert.rejects(executeReservedOrder({...args,storage:revoked,authorize:async()=>false,sign:async()=>{revokedSign++;return signed}}),/revoked/);assert.equal(revokedSign,0);
 const uncertain=store();let attempts=0;const failed={...args,storage:uncertain,sign:async()=>{attempts++;throw Error('Signer timeout')}};
-assert.equal((await executeReservedOrder(failed)).state,'signing_unknown');await executeReservedOrder(failed);assert.equal(attempts,1);
+assert.equal((await executeReservedOrder(failed)).state,'not_submitted');await executeReservedOrder(failed);assert.equal(attempts,1);
+assert.equal((await uncertain.get('order:'+orderId)).state,'not_submitted');
+assert.equal((await revoked.get('order:'+orderId)).state,'not_submitted','Authorization failure cannot leave a reserved account lock forever');
 await assert.rejects(executeReservedOrder({...args,storage:store(),prepared:{...prepared,quoteAt:now-6000}}),/freshness/);
+
+const late=store();let deliver,lateSends=0,lateSigns=0;
+late.map.set('mint:'+mint,orderId);late.map.set('signal:callout-12345:buy',orderId);
+late.map.set('active-order',orderId);
+assert.equal((await executeReservedOrder({...args,storage:late,signingTimeoutMs:5,
+  sign:()=>{lateSigns++;return new Promise(resolve=>{deliver=resolve})},fetcher:()=>{lateSends++;throw Error('Must not send')}})).state,'not_submitted');
+assert.equal((await late.get('order:'+orderId)).failureReason,'signer_timeout');
+assert.equal(await late.get('active-order'),undefined,'Only the unsubmitted active attempt is released');
+deliver(signed);await new Promise(resolve=>setTimeout(resolve,20));
+assert.equal((await late.get('order:'+orderId)).state,'not_submitted','Late signer completion cannot resurrect a closed order');
+await executeReservedOrder({...args,storage:late});assert.equal(lateSigns,1);assert.equal(lateSends,0);
+assert.equal(await late.get('mint:'+mint),orderId);assert.equal(await late.get('signal:callout-12345:buy'),orderId);
+for(const state of ['reserved','signing','signing_unknown']){
+  const old=store();old.map.set('order:'+orderId,{...await old.get('order:'+orderId),state,createdAt:now-61000,side:'sell'});old.map.set('sell:'+mint,orderId);
+  assert.equal((await reconcileOrder({storage:old,orderId,rpcUrl,now:()=>now,fetcher:()=>{throw Error('Unsigned attempt has nothing to reconcile on chain')}})).state,'not_submitted');
+  assert.equal(await old.get('sell:'+mint),undefined);assert.equal(await old.get('sell-failures:'+mint),1);
+  await reconcileOrder({storage:old,orderId,rpcUrl,now:()=>now});assert.equal(await old.get('sell-failures:'+mint),1);
+}
+const freshSigning=store();freshSigning.map.set('order:'+orderId,{...await freshSigning.get('order:'+orderId),state:'signing',createdAt:now-61000,signingStartedAt:now});
+assert.equal((await reconcileOrder({storage:freshSigning,orderId,rpcUrl,now:()=>now})).state,'signing');
+for(const field of ['signature','signedTransaction','recordedAt']){
+  const recorded=store();recorded.map.set('order:'+orderId,{...await recorded.get('order:'+orderId),state:'signing',createdAt:now-61000,[field]:field==='recordedAt'?now:field==='signature'?identity.signature:signed});
+  assert.equal((await reconcileOrder({storage:recorded,orderId,rpcUrl,now:()=>now})).state,'signing','Any broadcast evidence keeps the lock');
+}
+console.log('PASS: signer deadline, late result quarantine, retained duplicate locks, legacy unsigned recovery and broadcast protection');
 
 const {privateKey:signerTestKey,publicKey:signerTestPublic}=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
 const env={PRIVY_APP_SECRET:'test-only',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:signerTestKey.export({format:'der',type:'pkcs8'}).toString('base64'),SCOPE_PRIVY_SIGNER_QUORUM_ID:'igsys5hz5fmsly8v2q242jgo',SCOPE_PRIVY_POLICY_ID:'qhtl0rqr7553234g6zb7dna2'};
