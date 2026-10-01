@@ -37,6 +37,7 @@ const ix=await PUMP_SDK.getBuyV2InstructionRaw({user:wallet.publicKey,mint,creat
   amount:new BN(1000),quoteAmount:new BN(2000000),feeRecipient:wallet.publicKey,buybackFeeRecipient:wallet.publicKey});
 const unsigned=new VersionedTransaction(new TransactionMessage({payerKey:wallet.publicKey,recentBlockhash:mint.toBase58(),instructions:[ix]}).compileToV0Message());
 let tradeSigns=0;
+const networkFetch=globalThis.fetch;globalThis.fetch=async()=>Response.json({id:order.walletId,address:order.wallet,policy_ids:[],additional_signers:[]});
 const trade=await diagnoseSigning({...args,kind:'trade',prepareBuy:async input=>{
   assert.equal(input.budgetLamports,'2000000');return {transaction:Buffer.from(unsigned.serialize()).toString('base64'),wallet:order.wallet,
     mint:mint.toBase58(),side:'buy',tokenAmountRaw:'1000',maximumSpendLamports:'2000000'};},
@@ -46,4 +47,12 @@ assert.equal(trade.providerMessage,'Unsupported instruction data');
 assert.equal([...data.keys()].filter(key=>key.startsWith('order:')).length,1);
 assert.equal(data.get('order:'+order.id).state,'not_submitted');
 assert.equal(Object.hasOwn(trade,'transaction'),false);assert.equal(Object.hasOwn(trade,'signedTransaction'),false);
+data.delete('signing-diagnostic:'+order.id+':trade-v4');
+const successfulTrade=await diagnoseSigning({...args,kind:'trade',prepareBuy:async()=>({transaction:Buffer.from(unsigned.serialize()).toString('base64'),
+  wallet:order.wallet,mint:mint.toBase58(),side:'buy',tokenAmountRaw:'1000',maximumSpendLamports:'2000000'}),
+  signerFactory:()=>async({transaction})=>{const wire=VersionedTransaction.deserialize(Buffer.from(transaction,'base64'));wire.sign([wallet]);return Buffer.from(wire.serialize()).toString('base64')}});
+assert.equal(successfulTrade.state,'passed');
+for(const value of data.values()){assert.equal(Object.hasOwn(value,'transaction'),false);assert.equal(Object.hasOwn(value,'signedTransaction'),false)}
+assert.equal(data.get('order:'+order.id).state,'not_submitted');
+globalThis.fetch=networkFetch;
 console.log('PASS: compute-only signing check, cached result, account isolation, provider detail redaction, no broadcast or trade mutation');

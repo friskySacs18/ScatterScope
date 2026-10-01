@@ -13,12 +13,12 @@ const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 // policy rejections. Record only a controlled reason and numeric HTTP status.
 export function signerRequestFailure(error,{secrets=[]}={}){
   const status=Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:null;
-  const message=typeof error?.error?.message==='string'?error.error.message:typeof error?.message==='string'?error.message:'';
+  const message=typeof error?.error?.message==='string'?error.error.message:typeof error?.error?.error==='string'?error.error.error:typeof error?.message==='string'?error.message:'';
   const code=error instanceof APIConnectionTimeoutError||error?.name==='TimeoutError'?'signer_timeout':
     error instanceof APIConnectionError?'signer_connection_failed':
     status===429?'signer_rate_limited':status>=500?'signer_service_unavailable':
     status===401?'signer_authentication_failed':
-    status===403&&/policy/i.test(message)?'signer_policy_denied':
+    (status===400||status===403)&&/policy/i.test(message)?'signer_policy_denied':
     status===403?'signer_authorization_rejected':
     status&&/request.{0,40}expir|expired.{0,40}request/i.test(message)?'signer_request_expired':
     status===400||status===422?'signer_transaction_rejected':

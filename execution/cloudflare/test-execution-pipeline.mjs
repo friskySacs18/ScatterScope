@@ -15,6 +15,7 @@ assert.equal(signerRequestFailure(new APIConnectionTimeoutError()).code,'signer_
 assert.equal(signerRequestFailure(new APIConnectionError({message:'test-only'})).code,'signer_connection_failed');
 assert.equal(signerRequestFailure(new PermissionDeniedError(403,{message:'Policy prevented this action'},null,new Headers())).code,'signer_policy_denied');
 assert.equal(signerRequestFailure(new PermissionDeniedError(403,{message:'Authorization failed'},null,new Headers())).code,'signer_authorization_rejected');
+assert.equal(signerRequestFailure({status:400,error:{error:'RPC request denied due to policy violation',code:'policy_violation'}}).code,'signer_policy_denied');
 assert.equal(signerRequestFailure(new RateLimitError(429,{message:'Slow down'},null,new Headers())).code,'signer_rate_limited');
 assert.equal(signerRequestFailure(new Error('sensitive-test-value')).message.includes('sensitive-test-value'),false);
 const wallet=pair.publicKey.toBase58(),mint=Keypair.fromSeed(Uint8Array.from({length:32},(_,i)=>i+33)).publicKey.toBase58();

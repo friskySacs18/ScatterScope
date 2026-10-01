@@ -15,11 +15,11 @@ export async function diagnoseSigning({storage,env,accountId,connection,signerFa
     .sort((a,b)=>b.createdAt-a.createdAt)[0];
   if(!order)return {state:'not_needed'};
   if(!['compute','trade'].includes(kind))throw Error('Invalid diagnostic kind');
-  const key='signing-diagnostic:'+order.id+(kind==='trade'?':trade':''),cached=await storage.get(key);
+  const key='signing-diagnostic:'+order.id+(kind==='trade'?':trade-v4':''),cached=await storage.get(key);
   if(cached)return cached;
   const id=crypto.randomUUID();
   await storage.put(key,{state:'checking',orderId:order.id,at:now()});
-  let timer,result;
+  let timer,result,transactionSummary=null;
   try{
     let transaction;
     if(kind==='trade'){
@@ -35,6 +35,20 @@ export async function diagnoseSigning({storage,env,accountId,connection,signerFa
         inspectPumpV2Transaction(prepared.transaction,{wallet:order.wallet,mint:order.mint,side:'buy',amountRaw:prepared.tokenAmountRaw,limitLamports:prepared.maximumSpendLamports});
       if(!inspected.valid)throw Error('Diagnostic preparation rejected');
       transaction=prepared.transaction;
+      const wire=VersionedTransaction.deserialize(Buffer.from(transaction,'base64')),keys=wire.message.staticAccountKeys;
+      transactionSummary={wallet:order.wallet,mint:order.mint,venue:prepared.venue||'pump-curve',
+        programIds:wire.message.compiledInstructions.map(ix=>keys[ix.programIdIndex].toBase58()),systemTransfers:[]};
+      for(const ix of wire.message.compiledInstructions)if(keys[ix.programIdIndex].toBase58()==='11111111111111111111111111111111'&&ix.data.length===12&&
+        new DataView(ix.data.buffer,ix.data.byteOffset).getUint32(0,true)===2)transactionSummary.systemTransfers.push({
+          from:keys[ix.accountKeyIndexes[0]].toBase58(),to:keys[ix.accountKeyIndexes[1]].toBase58(),
+          lamports:new DataView(ix.data.buffer,ix.data.byteOffset).getBigUint64(4,true).toString()});
+      const walletResponse=await fetch('https://api.privy.io/v1/wallets/'+encodeURIComponent(order.walletId),{
+        headers:{authorization:'Basic '+btoa('cmuejmq9g00eg0cla13182nah:'+env.PRIVY_APP_SECRET),'privy-app-id':'cmuejmq9g00eg0cla13182nah'},signal:AbortSignal.timeout(6000)});
+      if(walletResponse.ok){const wallet=await walletResponse.json();
+        if(wallet.id===order.walletId&&wallet.address===order.wallet){
+          transactionSummary.walletPolicyIds=(wallet.policy_ids||[]).filter(id=>/^[a-z0-9]{24}$/.test(id));
+          transactionSummary.signerPolicyIds=(wallet.additional_signers?.find(s=>s.signer_id===env.SCOPE_PRIVY_SIGNER_QUORUM_ID)?.override_policy_ids||[]).filter(id=>/^[a-z0-9]{24}$/.test(id));
+        }}
     }else{
       const blockhash=await connection.getLatestBlockhash('confirmed');
       const wire=new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(order.wallet),recentBlockhash:blockhash.blockhash,
@@ -46,9 +60,9 @@ export async function diagnoseSigning({storage,env,accountId,connection,signerFa
       timer=setTimeout(()=>reject(Object.assign(Error('Diagnostic timeout'),{code:'signer_timeout'})),18000);
     })]);
     await verifySignedTransaction({unsigned:transaction,signed,wallet:order.wallet});
-    result={state:'passed',kind,orderId:order.id,at:now()};
+    result={state:'passed',kind,orderId:order.id,at:now(),transactionSummary};
   }catch(error){result={state:'failed',kind,orderId:order.id,at:now(),reason:/^[a-z_]{1,80}$/.test(error?.code||'')?error.code:'signer_diagnostic_unavailable',
-    httpStatus:Number.isInteger(error?.httpStatus)?error.httpStatus:null,providerMessage:typeof error?.providerMessage==='string'?error.providerMessage.slice(0,360):null};}
+    httpStatus:Number.isInteger(error?.httpStatus)?error.httpStatus:null,providerMessage:typeof error?.providerMessage==='string'?error.providerMessage.slice(0,360):null,transactionSummary};}
   finally{clearTimeout(timer)}
   await storage.put(key,result);return result;
 }
