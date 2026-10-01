@@ -15,7 +15,7 @@ export async function diagnoseSigning({storage,env,accountId,connection,signerFa
     .sort((a,b)=>b.createdAt-a.createdAt)[0];
   if(!order)return {state:'not_needed'};
   if(!['compute','trade'].includes(kind))throw Error('Invalid diagnostic kind');
-  const key='signing-diagnostic:'+order.id+(kind==='trade'?':trade-v4':''),cached=await storage.get(key);
+  const key='signing-diagnostic:'+order.id+(kind==='trade'?':trade-wallet-funding-v5':''),cached=await storage.get(key);
   if(cached)return cached;
   const id=crypto.randomUUID();
   await storage.put(key,{state:'checking',orderId:order.id,at:now()});

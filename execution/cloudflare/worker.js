@@ -9,6 +9,7 @@ import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 import {diagnoseSigning} from './signing-diagnostic.js';
 import {reviewManualSell,confirmManualSell} from './manual-sell.js';
+import {syncVerifiedWalletFunding} from './wallet-funding-policy.js';
 
 const BUILD='executor-signing-recovery-v16';
 const boundedConnection=env=>new Connection(env.RPC_URL,{commitment:'confirmed',disableRetryOnRateLimit:true,
@@ -45,7 +46,7 @@ export default {
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
       return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'provider-detail-trade-check-v3',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
-        manualSellSupported:true,orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
+        walletFundingPolicy:'verified-own-wsol-destinations',manualSellSupported:true,orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
@@ -176,6 +177,12 @@ export class AccountOrderJournal {
     let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid request'},400)}
     const path=new URL(request.url).pathname;
     try{
+      if(path==='/policy/ensure-wallet-funding'){
+        if(Object.keys(body||{}).sort().join(',')!=='accountId,wallet,walletId'||
+          !/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||'')||!ADDRESS.test(body.wallet||'')||!(/^[a-z0-9]{24}$/).test(body.walletId||''))return reply({error:'Invalid wallet identity'},400);
+        try{return reply(await syncVerifiedWalletFunding({env:this.env,...body}))}
+        catch{return reply({verified:false,error:'Wallet funding permission verification failed'},409)}
+      }
       if(path==='/reconcile'){
         if(!/^[0-9a-f-]{36}$/.test(body?.orderId||''))return reply({error:'Invalid order ID'},400);
         return reply(await reconcileOrder({storage:this.storage,orderId:body.orderId,rpcUrl:this.env.RPC_URL}));

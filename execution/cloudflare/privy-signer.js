@@ -1,11 +1,13 @@
 import {PrivyClient,APIConnectionTimeoutError,APIConnectionError} from '@privy-io/node';
 import {createPrivateKey,createPublicKey} from 'node:crypto';
+import {fundingRecipients,walletFundingAta} from './wallet-funding-destination.js';
+import {decodeTransaction} from './signed-transaction.js';
+import {inspectPumpAmmBuyTransaction} from './inspect-pump-amm.js';
 
 const APP_ID='cmuejmq9g00eg0cla13182nah';
 const ID=/^[a-z0-9]{24}$/;
 const PUMP_PROGRAMS=['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'];
 const TRADE_PROGRAMS=[...PUMP_PROGRAMS,'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA','TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA','TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
-const PILOT_WSOL_ATA='4dWv5mpSYfiw4iMjzgF51fF2eGchByQMTPpWibgZzYMz';
 const QUORUM_ID='igsys5hz5fmsly8v2q242jgo';
 const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 
@@ -33,7 +35,7 @@ export function signerRequestFailure(error,{secrets=[]}={}){
   return Object.assign(Error('Signing request failed'),{code,httpStatus:status,providerMessage:detail||null});
 }
 
-function authorizationKey(value){
+export function authorizationKey(value){
   if(typeof value!=='string'||value!==value.trim())throw Error('Invalid authorization key');
   const material=value.startsWith('wallet-auth:')?value.slice('wallet-auth:'.length):value;
   const pem=material.startsWith('-----BEGIN PRIVATE KEY-----');
@@ -82,9 +84,23 @@ export function verifiedSigningPolicy(policy,expectedPolicyId=POLICY_ID,expected
     limit.field_source==='solana_system_program_instruction'&&limit.field==='Transfer.lamports'&&limit.operator==='lte'&&
     /^(0|[1-9]\d{0,7})$/.test(String(limit.value))&&BigInt(limit.value)<=10000000n;
   const pumpSwap=programs.length===TRADE_PROGRAMS.length&&TRADE_PROGRAMS.every(id=>programs.includes(id))&&
-    limit.field_source==='solana_system_program_instruction'&&limit.field==='Transfer.to'&&limit.operator==='eq'&&
-    limit.value===PILOT_WSOL_ATA;
+    fundingRecipients(limit)!==null;
   return legacy||pumpSwap;
+}
+
+export function verifiedAmmWalletFunding(order,transaction){
+  if((order.side||'buy')!=='buy')return false;
+  try{
+    const wire=decodeTransaction(transaction),keys=wire.message.staticAccountKeys;
+    if(keys[0].toBase58()!==order.wallet||!wire.signatures[0].every(byte=>byte===0))return false;
+    const trades=wire.message.compiledInstructions.filter(ix=>keys[ix.programIdIndex].toBase58()==='pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA'&&
+      ix.data.length===25&&Buffer.from(ix.data.subarray(0,8)).toString('hex')==='66063d1201daebea');
+    if(trades.length!==1||!/^[1-9]\d{0,19}$/.test(order.amountLamports||''))return false;
+    const ix=trades[0],data=new DataView(ix.data.buffer,ix.data.byteOffset),amount=data.getBigUint64(8,true),maximum=data.getBigUint64(16,true);
+    if(maximum>BigInt(order.amountLamports))return false;
+    return inspectPumpAmmBuyTransaction(transaction,{wallet:order.wallet,mint:order.mint,amountRaw:amount.toString(),
+      limitLamports:maximum.toString(),tokenProgram:keys[ix.accountKeyIndexes[11]].toBase58()}).valid;
+  }catch{return false}
 }
 
 // This adapter signs only; broadcast belongs to the durable pipeline so a
@@ -104,21 +120,34 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
     };
     // These reads are independent. All four still have to pass before the
     // idempotent sign-only operation; serial reads consume block life.
-    const [user,wallet,quorum,policy]=await Promise.all([
+    let [user,wallet,quorum,policy]=await Promise.all([
       read('users/'+encodeURIComponent(order.accountId)),
       Promise.resolve().then(()=>api.wallets().get(order.walletId)).catch(()=>{throw fail('Privy wallet verification unavailable','signer_unavailable')}),
       read('key_quorums/'+encodeURIComponent(env.SCOPE_PRIVY_SIGNER_QUORUM_ID)),
       read('policies/'+encodeURIComponent(env.SCOPE_PRIVY_POLICY_ID))
     ]);
     if(user.id!==order.accountId||!user.linked_accounts?.some(x=>x.type==='wallet'&&x.chain_type==='solana'&&x.wallet_client_type==='privy'&&x.id===order.walletId&&x.address===order.wallet))throw fail('Wallet owner mismatch','wallet_owner_mismatch');
-    const delegated=wallet.additional_signers?.find(x=>x.signer_id===env.SCOPE_PRIVY_SIGNER_QUORUM_ID);
+    const delegates=wallet.additional_signers?.filter(x=>x.signer_id===env.SCOPE_PRIVY_SIGNER_QUORUM_ID)||[],delegated=delegates[0];
     if(wallet.id!==order.walletId||wallet.address!==order.wallet||wallet.chain_type!=='solana'||wallet.archived_at!=null||
-      delegated?.override_policy_ids?.length!==1||delegated.override_policy_ids[0]!==env.SCOPE_PRIVY_POLICY_ID)throw fail('Wallet delegation missing or revoked','wallet_delegation_revoked');
+      delegates.length!==1||delegated?.override_policy_ids?.length!==1||delegated.override_policy_ids[0]!==env.SCOPE_PRIVY_POLICY_ID)throw fail('Wallet delegation missing or revoked','wallet_delegation_revoked');
     if(quorum.id!==env.SCOPE_PRIVY_SIGNER_QUORUM_ID||quorum.authorization_threshold!==1||
       quorum.authorization_keys?.length!==1||quorum.authorization_keys[0]?.public_key?.replace(/\s/g,'')!==key.publicKey)
       throw fail('Signer private key does not match the registered quorum','signer_quorum_mismatch');
     if(!verifiedSigningPolicy(policy,env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID))
       throw fail('Privy signing policy incompatible or unavailable','signing_policy_unavailable');
+    const recipients=fundingRecipients(policy.rules[1].conditions[0]);
+    if(recipients&&!recipients.includes(walletFundingAta(order.wallet))&&verifiedAmmWalletFunding(order,transaction)){
+      if(!env.ACCOUNT_ORDERS)throw fail('Wallet funding policy journal unavailable','signing_policy_unavailable');
+      const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName('signing-policy:'+env.SCOPE_PRIVY_POLICY_ID));
+      const response=await stub.fetch(new Request('https://internal/policy/ensure-wallet-funding',{method:'POST',
+        headers:{'content-type':'application/json'},body:JSON.stringify({accountId:order.accountId,walletId:order.walletId,wallet:order.wallet})}));
+      const result=await response.json();
+      if(!response.ok||result.verified!==true)throw fail('Wallet funding permission could not be verified','signing_policy_unavailable');
+      policy=await read('policies/'+encodeURIComponent(env.SCOPE_PRIVY_POLICY_ID));
+      if(!verifiedSigningPolicy(policy,env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID)||
+        !fundingRecipients(policy.rules[1].conditions[0])?.includes(walletFundingAta(order.wallet)))
+        throw fail('Wallet funding permission could not be verified','signing_policy_unavailable');
+    }
     let result;
     const input={transaction,idempotency_key:order.id,request_expiry:now()+18000,
       authorization_context:{authorization_private_keys:[key.privateKey]}

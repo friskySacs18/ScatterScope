@@ -47,7 +47,7 @@ assert.equal(trade.providerMessage,'Unsupported instruction data');
 assert.equal([...data.keys()].filter(key=>key.startsWith('order:')).length,1);
 assert.equal(data.get('order:'+order.id).state,'not_submitted');
 assert.equal(Object.hasOwn(trade,'transaction'),false);assert.equal(Object.hasOwn(trade,'signedTransaction'),false);
-data.delete('signing-diagnostic:'+order.id+':trade-v4');
+data.delete('signing-diagnostic:'+order.id+':trade-wallet-funding-v5');
 const successfulTrade=await diagnoseSigning({...args,kind:'trade',prepareBuy:async()=>({transaction:Buffer.from(unsigned.serialize()).toString('base64'),
   wallet:order.wallet,mint:mint.toBase58(),side:'buy',tokenAmountRaw:'1000',maximumSpendLamports:'2000000'}),
   signerFactory:()=>async({transaction})=>{const wire=VersionedTransaction.deserialize(Buffer.from(transaction,'base64'));wire.sign([wallet]);return Buffer.from(wire.serialize()).toString('base64')}});

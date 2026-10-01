@@ -3,6 +3,9 @@ import BN from 'bn.js';
 import {Keypair,PublicKey,SystemProgram,TransactionInstruction} from '@solana/web3.js';
 import {canonicalPumpPoolPda,PUMP_AMM_PROGRAM_ID} from '@pump-fun/pump-swap-sdk';
 import {preparePumpAmmBuy,preparePumpAmmFullSell} from './pump-amm-build.js';
+import {generateKeyPairSync} from 'node:crypto';
+import {createPrivySigner,verifiedAmmWalletFunding} from './privy-signer.js';
+import {PILOT_WSOL_ATA,walletFundingAta} from './wallet-funding-destination.js';
 
 const wallet=Keypair.generate().publicKey,mint=Keypair.generate().publicKey;
 const TOKEN=new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -36,6 +39,9 @@ const buy=await preparePumpAmmBuy({connection,wallet:wallet.toBase58(),mint:mint
   quote:()=>({base:new BN(1000),maxQuote:new BN(1900000)}),offlineSdk:{buyQuoteInput:async()=>[
     SystemProgram.transfer({fromPubkey:wallet,toPubkey:wsolAta,lamports:1900000n}),sync,ix('buy',1000,1900000),close]}});
 assert.equal(buy.venue,'pump-amm');assert.equal(buy.maximumSpendLamports,'1900000');
+assert.equal(verifiedAmmWalletFunding({wallet:wallet.toBase58(),mint:mint.toBase58(),amountLamports:'2000000'},buy.transaction),true);
+assert.equal(verifiedAmmWalletFunding({wallet:wallet.toBase58(),mint:mint.toBase58(),amountLamports:'1800000'},buy.transaction),false);
+assert.equal(verifiedAmmWalletFunding({wallet:wallet.toBase58(),mint:key().toBase58(),amountLamports:'2000000'},buy.transaction),false);
 const sell=await preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',onlineSdk,simulate,
   quote:()=>({minQuote:new BN(1900000)}),offlineSdk:{sellBaseInput:async()=>[ix('sell',1000,1900000),close]}});
 assert.equal(sell.venue,'pump-amm');assert.equal(sell.minimumReceiveLamports,'1900000');
@@ -52,3 +58,24 @@ await assert.rejects(preparePumpAmmBuy({connection,wallet:wallet.toBase58(),mint
   quote:()=>({base:new BN(1000),maxQuote:new BN(3000000)})}),/exceeds/);
 await assert.rejects(preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'999',onlineSdk}),/full balance/);
 console.log('AMM buy and full sell builders enforce budget, exact token balance, instruction inspection, and simulation');
+const {privateKey,publicKey}=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+const signerEnv={PRIVY_APP_SECRET:'test',SCOPE_PRIVY_POLICY_ID:'zv16gt4cophfjuy8rnx3kjq4',SCOPE_PRIVY_SIGNER_QUORUM_ID:'igsys5hz5fmsly8v2q242jgo',SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM:privateKey.export({format:'der',type:'pkcs8'}).toString('base64')};
+let policy={id:signerEnv.SCOPE_PRIVY_POLICY_ID,chain_type:'solana',owner_id:signerEnv.SCOPE_PRIVY_SIGNER_QUORUM_ID,rules:[
+ {method:'signTransaction',action:'ALLOW',conditions:[{field_source:'solana_program_instruction',field:'programId',operator:'in',value:['6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','ComputeBudget111111111111111111111111111111','ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',PUMP_AMM_PROGRAM_ID.toBase58(),TOKEN.toBase58(),'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb']}]},
+ {method:'signTransaction',action:'ALLOW',conditions:[{field_source:'solana_system_program_instruction',field:'Transfer.to',operator:'eq',value:PILOT_WSOL_ATA}]}]};
+const order={id:crypto.randomUUID(),accountId:'did:privy:account123',walletId:'a'.repeat(24),wallet:wallet.toBase58(),mint:mint.toBase58(),amountLamports:'2000000'};
+let updates=0,signs=0;
+const signerClient={wallets:()=>({get:async()=>({id:order.walletId,address:order.wallet,chain_type:'solana',archived_at:null,
+ additional_signers:[{signer_id:signerEnv.SCOPE_PRIVY_SIGNER_QUORUM_ID,override_policy_ids:[signerEnv.SCOPE_PRIVY_POLICY_ID]}]}),
+ solana:()=>({signTransaction:async()=>{signs++;assert.ok(policy.rules[1].conditions[0].value.includes(walletFundingAta(order.wallet)));return {encoding:'base64',signed_transaction:'test-only-signed-bytes'}}})})};
+const ownerFetch=async url=>Response.json(url.includes('/policies/')?policy:url.includes('/key_quorums/')?{id:signerEnv.SCOPE_PRIVY_SIGNER_QUORUM_ID,
+ authorization_threshold:1,authorization_keys:[{public_key:publicKey.export({format:'der',type:'spki'}).toString('base64')}]}:{id:order.accountId,
+ linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:order.walletId,address:order.wallet}]});
+signerEnv.ACCOUNT_ORDERS={idFromName:id=>{assert.equal(id,'signing-policy:'+signerEnv.SCOPE_PRIVY_POLICY_ID);return id},get:()=>({fetch:async request=>{
+ updates++;assert.equal(new URL(request.url).pathname,'/policy/ensure-wallet-funding');assert.deepEqual(await request.json(),{accountId:order.accountId,walletId:order.walletId,wallet:order.wallet});
+ policy={...policy,rules:[policy.rules[0],{...policy.rules[1],conditions:[{...policy.rules[1].conditions[0],operator:'in',value:[PILOT_WSOL_ATA,walletFundingAta(order.wallet)]}]}]};
+ return Response.json({verified:true});}})};
+const signer=createPrivySigner(signerEnv,{client:signerClient,fetcher:ownerFetch});
+assert.equal(await signer({order,transaction:buy.transaction}),'test-only-signed-bytes');assert.equal(updates,1);assert.equal(signs,1);
+await signer({order,transaction:buy.transaction});assert.equal(updates,1,'Existing recipient permission is reused without another update');assert.equal(signs,2);
+console.log('PASS: verified PumpSwap funding uses the serialized policy journal, rereads permission before signing and reuses the existing recipient');
