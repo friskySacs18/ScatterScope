@@ -49,5 +49,5 @@ export async function quotePumpAmmFullSell({connection,wallet,mint,amountRaw,
   const expected=estimate?.uiQuote?.toString();
   if(!/^[1-9]\d{0,19}$/.test(expected||'')||BigInt(expected)>18446744073709551615n)
     throw Error('Migrated exit quote unavailable');
-  return {wallet,mint,amountRaw,observedAt:now(),expectedSolOutLamports:expected,venue:'pump-amm',pool:poolKey.toBase58()};
+  return {wallet,mint,amountRaw,tokenDecimals:state.baseMintAccount.decimals,observedAt:now(),expectedSolOutLamports:expected,venue:'pump-amm',pool:poolKey.toBase58()};
 }

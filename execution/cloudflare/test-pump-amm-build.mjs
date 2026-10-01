@@ -39,6 +39,10 @@ assert.equal(buy.venue,'pump-amm');assert.equal(buy.maximumSpendLamports,'190000
 const sell=await preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',onlineSdk,simulate,
   quote:()=>({minQuote:new BN(1900000)}),offlineSdk:{sellBaseInput:async()=>[ix('sell',1000,1900000),close]}});
 assert.equal(sell.venue,'pump-amm');assert.equal(sell.minimumReceiveLamports,'1900000');
+const reviewedArgs={connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',onlineSdk,simulate,
+  quote:()=>({minQuote:new BN(1900000),uiQuote:new BN(2000000)}),offlineSdk:{sellBaseInput:async()=>[ix('sell',1000,1900000),close]}};
+assert.equal((await preparePumpAmmFullSell({...reviewedArgs,minimumReceiveLamportsFloor:'1950000'})).minimumReceiveLamports,'1950000');
+await assert.rejects(preparePumpAmmFullSell({...reviewedArgs,minimumReceiveLamportsFloor:'2000001'}),/quote changed/);
 const older={...state,poolAccountInfo:{owner:PUMP_AMM_PROGRAM_ID,data:Buffer.alloc(261)}};
 const olderSell=await preparePumpAmmFullSell({connection,wallet:wallet.toBase58(),mint:mint.toBase58(),amountRaw:'1000',
   onlineSdk:{swapSolanaState:async()=>older},simulate,quote:()=>({minQuote:new BN(1900000)}),

@@ -100,3 +100,10 @@ const migration={...unarmed,job:exitJob,storage:{get:async()=>undefined},context
 await assert.rejects(runAccountOrder(migration),/verified_migrated_buy_builder_reached/);
 await assert.rejects(runAccountOrder({...migration,prepareBuy:async()=>{throw Error('rpc_unavailable')}}),/rpc_unavailable/);
 console.log('PASS: all accounts require verified context; saved budget forwarded to migrated buys; unrelated builder failures remain errors');
+const manualRequest=(body,authorized=true)=>new Request('https://executor.test/orders/manual-sell/review',{
+  method:'POST',headers:authorized?{authorization:'Bearer '+token}:{},body:JSON.stringify(body)});
+assert.equal((await worker.fetch(manualRequest({accountId:exitJob.accountId,mint:open.mint},false),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,401);
+assert.equal((await worker.fetch(manualRequest({accountId:exitJob.accountId,mint:open.mint,amountRaw:'999'}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,400);
+assert.equal((await worker.fetch(manualRequest({accountId:exitJob.accountId,mint:open.mint}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT,SCOPE_ORDER_KILL_SWITCH:'true'})).status,503);
+assert.equal((await worker.fetch(manualRequest({accountId:exitJob.accountId,mint:open.mint}),{...base,ACCOUNT_ORDERS,ORDER_CONTEXT})).status,200);
+console.log('PASS: private manual sell service authentication, strict fields and kill switch');

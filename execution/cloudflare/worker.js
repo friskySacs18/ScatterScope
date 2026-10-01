@@ -8,8 +8,11 @@ import {reconcileOrder,TERMINAL_ORDER_STATES} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
 import {diagnoseSigning} from './signing-diagnostic.js';
+import {reviewManualSell,confirmManualSell} from './manual-sell.js';
 
 const BUILD='executor-signing-recovery-v16';
+const boundedConnection=env=>new Connection(env.RPC_URL,{commitment:'confirmed',disableRetryOnRateLimit:true,
+  fetch:(url,options)=>fetch(url,{...options,signal:AbortSignal.timeout(6000)})});
 function exitErrorCode(error){
   const message=String(error?.message||'').toLowerCase();
   return message.includes('context')?'exit_context_rejected':
@@ -41,8 +44,8 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'provider-detail-compute-check-v2',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
-        orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
+      return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'provider-detail-trade-check-v3',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
+        manualSellSupported:true,orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
         signerMissing:config.signer.missing,signerInvalid:config.signer.invalid,signerKeyIssue:config.signer.keyIssue,
@@ -91,6 +94,19 @@ export default {
       if(!env.ACCOUNT_ORDERS)return reply({error:'Order journal unavailable'},503);
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+    }
+    if(['/orders/manual-sell/review','/orders/manual-sell/confirm'].includes(path)){
+      if(request.method!=='POST')return reply({error:'Method not allowed'},405);
+      if(!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.ORDER_SERVICE_TOKEN))return reply({error:'Service authorization required'},401);
+      const config=serviceConfiguration(env);
+      if(!config.executionEnabled)return reply({error:'Order service unavailable',blockers:config.blockers},503);
+      let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
+      const confirm=path.endsWith('/confirm');
+      if(Object.keys(body||{}).sort().join(',')!==(confirm?'accountId,mint,reviewId':'accountId,mint')||
+        !/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||'')||!ADDRESS.test(body.mint||'')||
+        confirm&&!/^[0-9a-f-]{36}$/.test(body.reviewId||''))return reply({error:'Invalid manual sell request'},400);
+      return env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId)).fetch(new Request('https://internal'+path,{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
     }
     if(path==='/orders/signing-diagnostic'){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
@@ -174,8 +190,20 @@ export class AccountOrderJournal {
         return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,failureReason:o.failureReason||null,failureDetail:o.failureDetail||null,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
           positions:await Promise.all([...positions.values()].filter(p=>p.state==='open').slice(0,12).map(async p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,costLamports:p.costLamports,openedAt:p.openedAt,canary:p.canary===true,rules:p.rules,buySignature:(await this.storage.get('order:'+p.buyOrderId))?.signature||null,exitObservation:await this.storage.get('exit-observation:'+p.mint)||null,lastExitCheck:await this.storage.get('exit-last-check:'+p.mint)||null}))),lastBuyCheck:await this.storage.get('buy-last-check')||null});
       }
-      if(path==='/signing-diagnostic')return reply(await diagnoseSigning({storage:this.storage,env:this.env,accountId:body.accountId,
-        connection:new Connection(this.env.RPC_URL,'confirmed')}));
+      if(path==='/signing-diagnostic'){
+        const args={storage:this.storage,env:this.env,accountId:body.accountId,connection:boundedConnection(this.env)};
+        const basic=await diagnoseSigning(args);
+        return reply(basic.state==='passed'?await diagnoseSigning({...args,kind:'trade'}):basic);
+      }
+      if(path==='/orders/manual-sell/review'||path==='/orders/manual-sell/confirm'){
+        if(!serviceConfiguration(this.env).executionEnabled)return reply({error:'Order service unavailable'},503);
+        try{
+          const result=path.endsWith('/review')?await reviewManualSell({storage:this.storage,env:this.env,...body,
+            connection:boundedConnection(this.env)}):await confirmManualSell({storage:this.storage,env:this.env,...body,
+              execute:options=>runAccountOrder({...options,connection:boundedConnection(this.env)})});
+          return reply(result,result.state==='blocked'?409:200);
+        }catch(error){return reply({state:'blocked',reason:error?.code==='manual_sell_quote_changed'?'manual_sell_quote_changed':'manual_sell_verification_failed'},422)}
+      }
       if(path==='/alerts'){
         const rows=await this.storage.list({prefix:'caller-alert:'});
         return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});

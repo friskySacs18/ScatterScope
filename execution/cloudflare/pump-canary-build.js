@@ -67,7 +67,7 @@ export async function preparePumpCanaryBuy({connection,wallet,mint,onlineSdk=new
     lastValidBlockHeight:blockhash.value?.lastValidBlockHeight||blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }
 
-export async function preparePumpFullSell({connection,wallet,mint,amountRaw,onlineSdk=new OnlinePumpSdk(connection),offlineSdk=PUMP_SDK,
+export async function preparePumpFullSell({connection,wallet,mint,amountRaw,minimumReceiveLamportsFloor,onlineSdk=new OnlinePumpSdk(connection),offlineSdk=PUMP_SDK,
   quote=getSellSolAmountFromTokenAmount,simulate=simulateUnsignedTrade,fetcher=fetch}={}){
   const quoteAt=Date.now();
   if(!ADDRESS.test(wallet||'')||!ADDRESS.test(mint||'')||wallet===mint||!(/^[1-9]\d{0,19}$/).test(amountRaw||'')||BigInt(amountRaw)>18446744073709551615n)throw Error('Invalid sell identity or amount');
@@ -89,8 +89,14 @@ export async function preparePumpFullSell({connection,wallet,mint,amountRaw,onli
   const instructions=await offlineSdk.sellV2Instructions({global,bondingCurveAccountInfo:state.bondingCurveAccountInfo,bondingCurve:state.bondingCurve,
     mint:coin,user,amount,quoteAmount:quoted,slippage:5,tokenProgram:new PublicKey(program),quoteTokenProgram:new PublicKey(TOKEN)});
   if(instructions.length!==1||instructions[0].programId.toBase58()!==PUMP||instructions[0].data.length!==24)throw Error('Unexpected sell instructions');
-  const minimum=new DataView(instructions[0].data.buffer,instructions[0].data.byteOffset,24).getBigUint64(16,true);
+  let minimum=new DataView(instructions[0].data.buffer,instructions[0].data.byteOffset,24).getBigUint64(16,true);
   if(minimum<1n||minimum<BigInt(quoted.toString())*95n/100n||minimum>BigInt(quoted.toString()))throw Error('Invalid sell minimum');
+  if(minimumReceiveLamportsFloor!==undefined){
+    if(!/^[1-9]\d{0,19}$/.test(minimumReceiveLamportsFloor)||BigInt(minimumReceiveLamportsFloor)>BigInt(quoted.toString()))
+      throw Object.assign(Error('Reviewed sell quote changed'),{code:'manual_sell_quote_changed'});
+    if(BigInt(minimumReceiveLamportsFloor)>minimum)minimum=BigInt(minimumReceiveLamportsFloor);
+    new DataView(instructions[0].data.buffer,instructions[0].data.byteOffset,24).setBigUint64(16,minimum,true);
+  }
   const transaction=new VersionedTransaction(new TransactionMessage({payerKey:user,recentBlockhash:blockhash.blockhash,
     instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:350000}),ComputeBudgetProgram.setComputeUnitPrice({microLamports:1000}),...instructions]}).compileToV0Message());
   const encoded=Buffer.from(transaction.serialize()).toString('base64');
@@ -127,5 +133,5 @@ export async function quotePumpFullSell({connection,wallet,mint,amountRaw,online
     amount:new BN(amountRaw)});
   if(!expected||expected.lte(new BN(0))||BigInt(expected.toString())>18446744073709551615n)
     throw Error('Exit quote unavailable');
-  return {wallet,mint,amountRaw,observedAt,expectedSolOutLamports:expected.toString(),venue:'pump-curve'};
+  return {wallet,mint,amountRaw,tokenDecimals:supply.value.decimals,observedAt,expectedSolOutLamports:expected.toString(),venue:'pump-curve'};
 }

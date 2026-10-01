@@ -13,6 +13,8 @@ const onlineSdk={fetchGlobal:async()=>({}),fetchFeeConfig:async()=>({}),fetchSel
 const offlineSdk={sellV2Instructions:async({amount,quoteAmount})=>[await PUMP_SDK.getSellV2InstructionRaw({user,mint:mintKey,creator:user,amount,quoteAmount:quoteAmount.muln(95).divn(100),feeRecipient:user,buybackFeeRecipient:user,tokenProgram,quoteMint,quoteTokenProgram:new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')})]};
 const args={connection,wallet,mint,amountRaw:'1000',onlineSdk,offlineSdk,quote:()=>new BN(2000000),simulate:async()=>({passed:true,unitsConsumed:50000})};
 const result=await preparePumpFullSell(args);assert.equal(result.minimumReceiveLamports,'1900000');assert.equal(result.tokenAmountRaw,'1000');
+assert.equal((await preparePumpFullSell({...args,minimumReceiveLamportsFloor:'1950000'})).minimumReceiveLamports,'1950000','Reviewed minimum is encoded and independently inspected');
+await assert.rejects(preparePumpFullSell({...args,minimumReceiveLamportsFloor:'2000001'}),/quote changed/);
 owner=mint;await assert.rejects(preparePumpFullSell(args),/ownership mismatch/);owner=wallet;
 balance='999';await assert.rejects(preparePumpFullSell(args),/balance or ownership/);balance='1000';
 frozen=true;await assert.rejects(preparePumpFullSell(args),/ownership mismatch/);frozen=false;

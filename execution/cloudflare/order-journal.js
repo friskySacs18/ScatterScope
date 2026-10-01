@@ -1,5 +1,6 @@
 import {evaluateBuy} from './order-controls.js';
 import {fullExitRules} from './position-exit.js';
+import {reviewMatches} from './manual-sell-review.js';
 const MAX_U64=18446744073709551615n;
 
 // One Durable Object per account serializes admission. Only a server component
@@ -67,7 +68,7 @@ export async function markFinalized(storage,orderId,signature,status){
 // independently; this reservation only serializes the account state.
 export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBalance,verifiedBalance,ownerVerified,
   consentVerified,signerPolicyVerified,fullTransactionVerified,simulationPassed,quoteAt,minSolOutLamports,
-  executionEnabled,killSwitch},now=Date.now()){
+  executionEnabled,killSwitch,manualReviewId=null},now=Date.now()){
   if(!storage?.transaction)throw Error('Durable account storage required');
   if(!/^[A-Za-z0-9:_-]{1,128}$/.test(accountId||'')||
     !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint||'')||
@@ -89,8 +90,15 @@ export async function reserveFullSell(storage,{accountId,mint,buyOrderId,rawBala
     const orderId=crypto.randomUUID();
     if(!buy.receipt||buy.receipt.state!=='confirmed'||buy.receipt.tokenDeltaRaw!==rawBalance)
       return {reserved:false,reason:'verified_buy_receipt_required'};
+    if(manualReviewId){
+      const review=await txn.get('manual-sell-review:'+mint),position=await txn.get('position:'+mint);
+      if(!reviewMatches(review,position,accountId,manualReviewId,now)||review.usedOrderId||
+        review.wallet!==buy.wallet||review.amountRaw!==rawBalance||BigInt(minSolOutLamports)<BigInt(review.minimumReceiveLamports))
+        return {reserved:false,reason:'manual_sell_review_expired'};
+      await txn.put('manual-sell-review:'+mint,{...review,usedOrderId:orderId});
+    }
     await txn.put('order:'+orderId,{id:orderId,accountId,mint,wallet:buy.wallet,walletId:buy.walletId||null,buyOrderId,amountRaw:rawBalance,
-      side:'sell',state:'reserved',createdAt:now,signature:null});
+      side:'sell',manual:Boolean(manualReviewId),state:'reserved',createdAt:now,signature:null});
     await txn.put(key,orderId);
     return {reserved:true,orderId};
   });

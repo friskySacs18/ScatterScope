@@ -59,7 +59,7 @@ export async function preparePumpAmmBuy({connection,wallet,mint,budgetLamports,
     lastValidBlockHeight:blockhash.lastValidBlockHeight,simulationUnits:simulation.unitsConsumed};
 }
 
-export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,
+export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,minimumReceiveLamportsFloor,
   onlineSdk=new OnlinePumpAmmSdk(connection),offlineSdk=PUMP_AMM_SDK,
   quote=sellBaseInput,simulate=simulateUnsignedTrade,fetcher=fetch}={}){
   const quoteAt=Date.now();
@@ -70,7 +70,7 @@ export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,
     globalConfig:state.globalConfig,baseMintAccount:state.baseMintAccount,baseMint:coin,
     coinCreator:pool.coinCreator,creator:pool.creator,feeConfig:state.feeConfig,
     quoteMint:pool.quoteMint,isMayhemMode:pool.isMayhemMode,creatorFeeBps:pool.creatorFeeBps});
-  const min=estimate?.minQuote?.toString();
+  let min=estimate?.minQuote?.toString();
   if(!/^[1-9]\d{0,19}$/.test(min||'')||BigInt(min)>18446744073709551615n)
     throw Error('Migrated sell minimum unavailable');
   const [balance,blockhash,rent,poolRent]=await Promise.all([
@@ -87,6 +87,15 @@ export async function preparePumpAmmFullSell({connection,wallet,mint,amountRaw,
   }
   const trade=await offlineSdk.sellBaseInput(state,new BN(amountRaw),5);
   if(!Array.isArray(trade)||trade.length<2||trade.length>3)throw Error('Unexpected migrated sell instructions');
+  if(minimumReceiveLamportsFloor!==undefined){
+    if(!/^[1-9]\d{0,19}$/.test(minimumReceiveLamportsFloor)||BigInt(minimumReceiveLamportsFloor)>BigInt(estimate.uiQuote.toString()))
+      throw Object.assign(Error('Reviewed sell quote changed'),{code:'manual_sell_quote_changed'});
+    const sells=trade.filter(ix=>ix.programId.toBase58()==='pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA'&&
+      ix.data.length===24&&Buffer.from(ix.data.subarray(0,8)).toString('hex')==='33e685a4017f83ad');
+    if(sells.length!==1)throw Error('Unexpected migrated sell instruction');
+    if(BigInt(minimumReceiveLamportsFloor)>BigInt(min))min=minimumReceiveLamportsFloor;
+    new DataView(sells[0].data.buffer,sells[0].data.byteOffset,24).setBigUint64(16,BigInt(min),true);
+  }
   const transaction=new VersionedTransaction(new TransactionMessage({payerKey:user,recentBlockhash:blockhash.blockhash,
     instructions:[ComputeBudgetProgram.setComputeUnitLimit({units:350000}),
       ComputeBudgetProgram.setComputeUnitPrice({microLamports:1000}),...trade]}).compileToV0Message());
