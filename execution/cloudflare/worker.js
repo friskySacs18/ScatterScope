@@ -40,7 +40,7 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
+      return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'typed-sdk-errors-v1',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
         orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
@@ -204,7 +204,7 @@ export class AccountOrderJournal {
         const side=path.endsWith('buy')?'buy':'sell';
         try{
           const result=await runAccountOrder({storage:this.storage,env:this.env,job:body,side,canary:path==='/orders/canary/buy'});
-          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:result.state,reason:/^[a-z_]{1,80}$/.test(result.reason||'')?result.reason:null});
+          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:result.state,reason:/^[a-z_]{1,80}$/.test(result.reason||'')?result.reason:null,httpStatus:Number.isInteger(result.httpStatus)&&result.httpStatus>=400&&result.httpStatus<=599?result.httpStatus:null});
           return reply(result);
         }catch(error){
           if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:'blocked',reason:'buy_verification_failed',blockers:Array.isArray(error?.blockers)?error.blockers.filter(x=>/^[a-z_]{1,80}$/.test(x)).slice(0,12):[]});

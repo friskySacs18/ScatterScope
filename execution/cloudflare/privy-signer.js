@@ -1,4 +1,4 @@
-import {PrivyClient} from '@privy-io/node';
+import {PrivyClient,APIConnectionTimeoutError,APIConnectionError} from '@privy-io/node';
 import {createPrivateKey,createPublicKey} from 'node:crypto';
 
 const APP_ID='cmuejmq9g00eg0cla13182nah';
@@ -8,6 +8,23 @@ const TRADE_PROGRAMS=[...PUMP_PROGRAMS,'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMf
 const PILOT_WSOL_ATA='4dWv5mpSYfiw4iMjzgF51fF2eGchByQMTPpWibgZzYMz';
 const QUORUM_ID='igsys5hz5fmsly8v2q242jgo';
 const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
+
+// SDK subclasses inherit name='Error'; name matching mislabels timeouts as
+// policy rejections. Record only a controlled reason and numeric HTTP status.
+export function signerRequestFailure(error){
+  const status=Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:null;
+  const message=typeof error?.error?.message==='string'?error.error.message:typeof error?.message==='string'?error.message:'';
+  const code=error instanceof APIConnectionTimeoutError||error?.name==='TimeoutError'?'signer_timeout':
+    error instanceof APIConnectionError?'signer_connection_failed':
+    status===429?'signer_rate_limited':status>=500?'signer_service_unavailable':
+    status===401?'signer_authentication_failed':
+    status===403&&/policy/i.test(message)?'signer_policy_denied':
+    status===403?'signer_authorization_rejected':
+    status&&/request.{0,40}expir|expired.{0,40}request/i.test(message)?'signer_request_expired':
+    status===400||status===422?'signer_transaction_rejected':
+    status===409?'signer_request_conflict':status?'signer_request_rejected':'signer_local_error';
+  return Object.assign(Error('Signing request failed'),{code,httpStatus:status});
+}
 
 function authorizationKey(value){
   if(typeof value!=='string'||value!==value.trim())throw Error('Invalid authorization key');
@@ -79,7 +96,7 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
       }catch(error){throw fail('Privy signer verification unavailable',error?.name==='TimeoutError'?'signer_timeout':'signer_unavailable')}
     };
     // These reads are independent. All four still have to pass before the
-    // single sign-only request; serial reads unnecessarily consume block life.
+    // idempotent sign-only operation; serial reads consume block life.
     const [user,wallet,quorum,policy]=await Promise.all([
       read('users/'+encodeURIComponent(order.accountId)),
       Promise.resolve().then(()=>api.wallets().get(order.walletId)).catch(()=>{throw fail('Privy wallet verification unavailable','signer_unavailable')}),
@@ -96,10 +113,19 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
     if(!verifiedSigningPolicy(policy,env.SCOPE_PRIVY_POLICY_ID,env.SCOPE_PRIVY_SIGNER_QUORUM_ID))
       throw fail('Privy signing policy incompatible or unavailable','signing_policy_unavailable');
     let result;
-    try{result=await api.wallets().solana().signTransaction(order.walletId,{
-      transaction,idempotency_key:order.id,request_expiry:now()+15000,
+    const input={transaction,idempotency_key:order.id,request_expiry:now()+18000,
       authorization_context:{authorization_private_keys:[key.privateKey]}
-    })}catch(error){throw fail('Privy signing request failed',/timeout/i.test(error?.name||'')?'signer_timeout':'signer_request_rejected')}
+    };
+    for(let attempt=0;attempt<2;attempt++){
+      try{result=await api.wallets().solana().signTransaction(order.walletId,input);break}
+      catch(error){
+        const failure=signerRequestFailure(error);
+        const retryable=['signer_timeout','signer_connection_failed','signer_service_unavailable'].includes(failure.code);
+        if(attempt!==0||!retryable)throw failure;
+        // Same unsigned bytes and idempotency key. This never broadcasts or
+        // creates a second payment; the durable pipeline still sends once.
+      }
+    }
     if(result.encoding!=='base64'||typeof result.signed_transaction!=='string')throw fail('Invalid signer response','invalid_signer_response');
     return result.signed_transaction;
   };

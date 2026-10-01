@@ -6,9 +6,17 @@ import {PUMP_SDK} from '@pump-fun/pump-sdk';
 import {executeReservedOrder,reconcileOrder} from './execution-pipeline.js';
 import {verifySignedTransaction} from './signed-transaction.js';
 import {verifySettlement} from './settlement.js';
-import {createPrivySigner,verifiedSigningPolicy} from './privy-signer.js';
+import {createPrivySigner,verifiedSigningPolicy,signerRequestFailure} from './privy-signer.js';
+import {APIConnectionTimeoutError,APIConnectionError,PermissionDeniedError,RateLimitError} from '@privy-io/node';
 
 const pair=Keypair.fromSeed(Uint8Array.from({length:32},(_,i)=>i+1));
+assert.equal(new APIConnectionTimeoutError().name,'Error');
+assert.equal(signerRequestFailure(new APIConnectionTimeoutError()).code,'signer_timeout');
+assert.equal(signerRequestFailure(new APIConnectionError({message:'test-only'})).code,'signer_connection_failed');
+assert.equal(signerRequestFailure(new PermissionDeniedError(403,{message:'Policy prevented this action'},null,new Headers())).code,'signer_policy_denied');
+assert.equal(signerRequestFailure(new PermissionDeniedError(403,{message:'Authorization failed'},null,new Headers())).code,'signer_authorization_rejected');
+assert.equal(signerRequestFailure(new RateLimitError(429,{message:'Slow down'},null,new Headers())).code,'signer_rate_limited');
+assert.equal(signerRequestFailure(new Error('sensitive-test-value')).message.includes('sensitive-test-value'),false);
 const wallet=pair.publicKey.toBase58(),mint=Keypair.fromSeed(Uint8Array.from({length:32},(_,i)=>i+33)).publicKey.toBase58();
 const accountId='did:privy:account123',walletId='a'.repeat(24),orderId=crypto.randomUUID(),rpcUrl='https://api.mainnet-beta.solana.com/';
 const ix=await PUMP_SDK.getBuyV2InstructionRaw({user:pair.publicKey,mint:new PublicKey(mint),creator:pair.publicKey,amount:new BN(1000),quoteAmount:new BN(2000000),feeRecipient:pair.publicKey,buybackFeeRecipient:pair.publicKey});
@@ -126,6 +134,27 @@ assert.equal(verifiedSigningPolicy({...tradePolicy,rules:[tradePolicy.rules[0],{
 const quorum={id:env.SCOPE_PRIVY_SIGNER_QUORUM_ID,authorization_threshold:1,authorization_keys:[{public_key:signerTestPublic.export({format:'der',type:'spki'}).toString('base64')}]};
 const ownerFetch=async url=>Response.json(url.includes('/policies/')?goodPolicy:url.includes('/key_quorums/')?quorum:{id:accountId,linked_accounts:[{type:'wallet',chain_type:'solana',wallet_client_type:'privy',id:walletId,address:wallet}]});
 const sign=createPrivySigner(env,{client,fetcher:ownerFetch});
+const attemptsWith=[];
+const flakyClient={wallets:()=>({...client.wallets(),solana:()=>({signTransaction:async(id,input)=>{
+  attemptsWith.push(structuredClone(input));if(attemptsWith.length===1)throw new APIConnectionTimeoutError();
+  return {encoding:'base64',signed_transaction:signed};
+}})})};
+assert.equal(await createPrivySigner(env,{client:flakyClient,fetcher:ownerFetch})({order,transaction:unsigned}),signed);
+assert.equal(attemptsWith.length,2);assert.deepEqual(attemptsWith[0],attemptsWith[1],'Timeout retry retains exact bytes, idempotency and request expiry');
+let denials=0;
+const deniedClient={wallets:()=>({...client.wallets(),solana:()=>({signTransaction:async()=>{
+  denials++;throw new PermissionDeniedError(403,{message:'Policy prevented this action'},null,new Headers());
+}})})};
+const deniedStorage=store();
+const deniedOutcome=await executeReservedOrder({...args,storage:deniedStorage,sign:createPrivySigner(env,{client:deniedClient,fetcher:ownerFetch})});
+assert.equal(deniedOutcome.state,'not_submitted');assert.equal(deniedOutcome.reason,'signer_policy_denied');assert.equal(deniedOutcome.httpStatus,403);
+assert.equal(denials,1,'Policy denials never retry');assert.equal((await deniedStorage.get('order:'+orderId)).failureHttpStatus,403);
+let networkAttempts=0;
+const offlineClient={wallets:()=>({...client.wallets(),solana:()=>({signTransaction:async()=>{
+  networkAttempts++;throw new APIConnectionError({message:'test-only'});
+}})})};
+await assert.rejects(createPrivySigner(env,{client:offlineClient,fetcher:ownerFetch})({order,transaction:unsigned}),error=>error.code==='signer_connection_failed');
+assert.equal(networkAttempts,2,'A continuing outage is bounded to one exact-request retry');
 assert.equal(await sign({order,transaction:unsigned}),signed);delegated=false;
 await assert.rejects(sign({order,transaction:unsigned}),/revoked/);assert.equal(signRequests,1);
 const wrongOwner=createPrivySigner(env,{client,fetcher:async()=>Response.json({id:accountId,linked_accounts:[]})});
