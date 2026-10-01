@@ -7,6 +7,7 @@ import {serviceConfiguration,operatorConfiguration} from './service-config.js';
 import {reconcileOrder,TERMINAL_ORDER_STATES} from './execution-pipeline.js';
 import {runAccountOrder} from './account-executor.js';
 import {inspectOpenPositions} from './position-monitor.js';
+import {diagnoseSigning} from './signing-diagnostic.js';
 
 const BUILD='executor-signing-recovery-v16';
 function exitErrorCode(error){
@@ -40,7 +41,7 @@ export default {
     const path=new URL(request.url).pathname;
     if(request.method==='GET'&&path==='/status'){
       const config=serviceConfiguration(env);
-      return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'typed-sdk-errors-v1',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
+      return reply({service:'scope-order-executor',build:BUILD,signerDiagnostics:'provider-detail-compute-check-v2',signingRecovery:'unsubmitted-only-deadline',signingTimeoutMs:25000,sellTokenProgramLookup:'verified-mint-owner',broadcastRecovery:'identical-bytes-finalized-expiry',supportedBuyVenues:['pump-curve','pump-amm'],pumpAmmInstructionLayout:'sdk-idl-v1',allAccountsLive:true,executionEnabled:config.executionEnabled,ordersSupported:true,
         orderPipelineImplemented:true,exitPathVerified:config.exitPathVerified,canaryAvailable:config.canaryAvailable,orderContextConfigured:config.contextConfigured,signerConfigured:config.signer.configured,signerVerified:false,rpcConfigured:config.rpcConfigured,
         canaryPreparationConfigured:config.canaryPreparationConfigured,operatorTokenConfigured:config.operator.configured,
         operatorTokenIssue:config.operator.code,operatorTokenHelp:config.operator.message,
@@ -90,6 +91,15 @@ export default {
       if(!env.ACCOUNT_ORDERS)return reply({error:'Order journal unavailable'},503);
       const stub=env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId));
       return stub.fetch(new Request('https://internal/status',{method:'POST',headers:{'content-type':'application/json'},body:'{}'}));
+    }
+    if(path==='/orders/signing-diagnostic'){
+      if(request.method!=='POST')return reply({error:'Method not allowed'},405);
+      if(!sameSecret(request.headers.get('authorization')?.replace(/^Bearer /,''),env.ORDER_SERVICE_TOKEN))return reply({error:'Service authorization required'},401);
+      let body;try{body=await smallJson(request)}catch{return reply({error:'Invalid body'},400)}
+      if(Object.keys(body||{}).join(',')!=='accountId'||!/^did:privy:[A-Za-z0-9_-]{8,120}$/.test(body.accountId||''))return reply({error:'Invalid account'},400);
+      if(!env.ACCOUNT_ORDERS||!env.RPC_URL)return reply({error:'Order journal unavailable'},503);
+      return env.ACCOUNT_ORDERS.get(env.ACCOUNT_ORDERS.idFromName(body.accountId)).fetch(new Request('https://internal/signing-diagnostic',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));
     }
     if(path==='/orders/alerts'){
       if(request.method!=='POST')return reply({error:'Method not allowed'},405);
@@ -161,9 +171,11 @@ export class AccountOrderJournal {
           if(TERMINAL_ORDER_STATES.includes(outcome.state))await this.storage.delete('active-order');
         }
         const orders=await this.storage.list({prefix:'order:',limit:100}),positions=await this.storage.list({prefix:'position:',limit:100});
-        return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,failureReason:o.failureReason||null,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
+        return reply({orders:[...orders.values()].sort((a,b)=>b.createdAt-a.createdAt).slice(0,12).map(o=>({id:o.id,mint:o.mint,side:o.side||'buy',state:o.state,failureReason:o.failureReason||null,failureDetail:o.failureDetail||null,signature:o.signature||null,canary:o.canary===true,createdAt:o.createdAt})),
           positions:await Promise.all([...positions.values()].filter(p=>p.state==='open').slice(0,12).map(async p=>({mint:p.mint,state:p.state,amountRaw:p.amountRaw,costLamports:p.costLamports,openedAt:p.openedAt,canary:p.canary===true,rules:p.rules,buySignature:(await this.storage.get('order:'+p.buyOrderId))?.signature||null,exitObservation:await this.storage.get('exit-observation:'+p.mint)||null,lastExitCheck:await this.storage.get('exit-last-check:'+p.mint)||null}))),lastBuyCheck:await this.storage.get('buy-last-check')||null});
       }
+      if(path==='/signing-diagnostic')return reply(await diagnoseSigning({storage:this.storage,env:this.env,accountId:body.accountId,
+        connection:new Connection(this.env.RPC_URL,'confirmed')}));
       if(path==='/alerts'){
         const rows=await this.storage.list({prefix:'caller-alert:'});
         return reply({alerts:[...rows.values()].filter(x=>x?.kind==='consecutive_losses'&&x.losses>=4).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,12)});
@@ -204,7 +216,7 @@ export class AccountOrderJournal {
         const side=path.endsWith('buy')?'buy':'sell';
         try{
           const result=await runAccountOrder({storage:this.storage,env:this.env,job:body,side,canary:path==='/orders/canary/buy'});
-          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:result.state,reason:/^[a-z_]{1,80}$/.test(result.reason||'')?result.reason:null,httpStatus:Number.isInteger(result.httpStatus)&&result.httpStatus>=400&&result.httpStatus<=599?result.httpStatus:null});
+          if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:result.state,reason:/^[a-z_]{1,80}$/.test(result.reason||'')?result.reason:null,httpStatus:Number.isInteger(result.httpStatus)&&result.httpStatus>=400&&result.httpStatus<=599?result.httpStatus:null,providerMessage:typeof result.providerMessage==='string'?result.providerMessage.slice(0,360):null});
           return reply(result);
         }catch(error){
           if(side==='buy')await this.storage.put('buy-last-check',{at:Date.now(),signalId:body.signalId,state:'blocked',reason:'buy_verification_failed',blockers:Array.isArray(error?.blockers)?error.blockers.filter(x=>/^[a-z_]{1,80}$/.test(x)).slice(0,12):[]});

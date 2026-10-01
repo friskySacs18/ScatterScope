@@ -11,7 +11,7 @@ const POLICY_ID='qhtl0rqr7553234g6zb7dna2';
 
 // SDK subclasses inherit name='Error'; name matching mislabels timeouts as
 // policy rejections. Record only a controlled reason and numeric HTTP status.
-export function signerRequestFailure(error){
+export function signerRequestFailure(error,{secrets=[]}={}){
   const status=Number.isInteger(error?.status)&&error.status>=400&&error.status<=599?error.status:null;
   const message=typeof error?.error?.message==='string'?error.error.message:typeof error?.message==='string'?error.message:'';
   const code=error instanceof APIConnectionTimeoutError||error?.name==='TimeoutError'?'signer_timeout':
@@ -23,7 +23,14 @@ export function signerRequestFailure(error){
     status&&/request.{0,40}expir|expired.{0,40}request/i.test(message)?'signer_request_expired':
     status===400||status===422?'signer_transaction_rejected':
     status===409?'signer_request_conflict':status?'signer_request_rejected':'signer_local_error';
-  return Object.assign(Error('Signing request failed'),{code,httpStatus:status});
+  let detail=message;
+  for(const secret of secrets)if(typeof secret==='string'&&secret.length>3)detail=detail.split(secret).join('[redacted]');
+  detail=detail.replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g,'[redacted]')
+    .replace(/https?:\/\/\S+/g,'[provider URL]')
+    .replace(/\b(?:Bearer|Basic)\s+\S+/gi,'[redacted]')
+    .replace(/\b[A-Za-z0-9_+/=-]{60,}\b/g,'[redacted]')
+    .replace(/[\r\n\t]/g,' ').slice(0,360);
+  return Object.assign(Error('Signing request failed'),{code,httpStatus:status,providerMessage:detail||null});
 }
 
 function authorizationKey(value){
@@ -119,7 +126,7 @@ export function createPrivySigner(env,{client,fetcher=fetch,now=Date.now}={}){
     for(let attempt=0;attempt<2;attempt++){
       try{result=await api.wallets().solana().signTransaction(order.walletId,input);break}
       catch(error){
-        const failure=signerRequestFailure(error);
+        const failure=signerRequestFailure(error,{secrets:[env.PRIVY_APP_SECRET,env.SCOPE_PRIVY_SIGNER_PRIVATE_KEY_PEM,key.privateKey]});
         const retryable=['signer_timeout','signer_connection_failed','signer_service_unavailable'].includes(failure.code);
         if(attempt!==0||!retryable)throw failure;
         // Same unsigned bytes and idempotency key. This never broadcasts or

@@ -20,15 +20,15 @@ const SIGNER_CODES=new Set(['signer_timeout','signer_unavailable','wallet_owner_
 // This is safe only before the durable broadcast marker. Signing is a sign-only
 // operation: the pipeline is the sole sender and records bytes BEFORE any RPC.
 // Keep signal/mint locks so closing an unsigned attempt cannot duplicate a buy.
-async function markNotSubmitted(storage,orderId,reason,now,httpStatus=null){
+async function markNotSubmitted(storage,orderId,reason,now,httpStatus=null,providerMessage=null){
   return storage.transaction(async txn=>{
     const key='order:'+orderId,current=await txn.get(key);
     if(!current||!UNSUBMITTED_STATES.includes(current.state)||current.signature||current.signedTransaction||current.recordedAt!=null)return false;
-    await txn.put(key,{...current,state:'not_submitted',failureReason:reason,failureHttpStatus:httpStatus,settledAt:now});
+    await txn.put(key,{...current,state:'not_submitted',failureReason:reason,failureHttpStatus:httpStatus,failureDetail:providerMessage,settledAt:now});
     if(await txn.get('active-order')===orderId)await txn.delete('active-order');
     const latest=await txn.get('buy-last-check');
     if(current.side!=='sell'&&current.signalId&&latest?.signalId===current.signalId)
-      await txn.put('buy-last-check',{...latest,at:now,state:'not_submitted',reason,httpStatus});
+      await txn.put('buy-last-check',{...latest,at:now,state:'not_submitted',reason,httpStatus,providerMessage});
     if(current.side==='sell'&&await txn.get('sell:'+current.mint)===orderId){
       await txn.delete('sell:'+current.mint);
       const failuresKey='sell-failures:'+current.mint;
@@ -85,9 +85,10 @@ export async function executeReservedOrder({storage,orderId,prepared,authorize,s
   }catch(error){
     const reason=SIGNER_CODES.has(error?.code)?error.code:'signer_unavailable';
     const httpStatus=Number.isInteger(error?.httpStatus)&&error.httpStatus>=400&&error.httpStatus<=599?error.httpStatus:null;
-    const closed=await markNotSubmitted(storage,orderId,reason,now(),httpStatus);
-    console.warn('Order signing failed',JSON.stringify({orderId,reason,httpStatus}));
-    return {state:closed?'not_submitted':(await storage.get('order:'+orderId))?.state||'missing',reason,httpStatus,orderId};
+    const providerMessage=typeof error?.providerMessage==='string'?error.providerMessage.slice(0,360):null;
+    const closed=await markNotSubmitted(storage,orderId,reason,now(),httpStatus,providerMessage);
+    console.warn('Order signing failed',JSON.stringify({orderId,reason,httpStatus,providerMessage}));
+    return {state:closed?'not_submitted':(await storage.get('order:'+orderId))?.state||'missing',reason,httpStatus,providerMessage,orderId};
   }
   const recorded=await storage.transaction(async txn=>{
     const current=await txn.get('order:'+orderId);
